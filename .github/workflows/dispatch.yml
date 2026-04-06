@@ -1,0 +1,54 @@
+name: GoWild Dispatch
+
+# Run every 15 min during the check window:
+# Flights depart Fri 6pm PT - Sat 11am PT
+# T-24h checks: Thu 6pm PT - Fri 11am PT = Fri 1:00 UTC - Fri 18:00 UTC
+# T-23h checks: Thu 7pm PT - Fri 12pm PT = Fri 2:00 UTC - Fri 19:00 UTC
+# Combined window: Fri 1:00 UTC - Fri 19:00 UTC
+on:
+  schedule:
+    # Every 15 min, Fridays only, 0:45 UTC through 19:15 UTC
+    # (starts slightly early for edge cases)
+    - cron: '*/15 0-19 * * 5'
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Initialize DB if needed
+        run: python monitor.py init
+
+      - name: Run dispatcher
+        run: python monitor.py dispatch
+
+      - name: Commit database changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add gowild_monitor.db
+          if git diff --cached --quiet; then
+            echo "No DB changes to commit."
+            exit 0
+          fi
+          git commit -m "chore: update availability data [skip ci]"
+          # Retry push in case of concurrent runs
+          for i in 1 2 3; do
+            git push && break
+            echo "Push failed, retrying ($i/3)..."
+            sleep 5
+            git pull --rebase
+          done

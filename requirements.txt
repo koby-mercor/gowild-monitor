@@ -1,0 +1,5 @@
+fast-flights==2.2
+pytz
+typer
+rich
+python-dateutil

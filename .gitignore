@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.dispatch.lock
+logs/
+.claude/
+*.db-shm
+*.db-wal
