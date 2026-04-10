@@ -1,20 +1,17 @@
 name: GoWild Dispatch
 
-# Run every 15 min during the check window:
-# Flights depart Fri 6pm PT - Sat 11am PT
-# T-24h checks: Thu 6pm PT - Fri 11am PT = Fri 1:00 UTC - Fri 18:00 UTC
-# T-23h checks: Thu 7pm PT - Fri 12pm PT = Fri 2:00 UTC - Fri 19:00 UTC
-# Combined window: Fri 1:00 UTC - Fri 19:00 UTC
+# Catch-up model: each run checks ALL flights past T-24h.
+# Run every 2 hours Thu-Mon to cover outbound (Fri/Sat) and return (Sun/Mon).
+# GitHub Actions may skip some runs — the catch-up logic handles gaps.
 on:
   schedule:
-    # Every 15 min, Fridays only, 0:45 UTC through 19:15 UTC
-    # (starts slightly early for edge cases)
-    - cron: '*/15 0-19 * * 5'
+    - cron: '0 */2 * * 4,5,6,0,1'  # Every 2h on Thu-Mon (UTC)
   workflow_dispatch: {}
 
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write
     steps:
@@ -45,7 +42,6 @@ jobs:
             exit 0
           fi
           git commit -m "chore: update availability data [skip ci]"
-          # Retry push in case of concurrent runs
           for i in 1 2 3; do
             git push && break
             echo "Push failed, retrying ($i/3)..."

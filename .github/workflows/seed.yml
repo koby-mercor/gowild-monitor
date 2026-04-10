@@ -1,18 +1,20 @@
 name: GoWild Seed
 
-# Seed next weekend's flight schedules every Monday morning
+# Seed all Frontier destinations (SFO + SJC), both directions, Fri-Mon.
+# Runs Monday morning PT to discover flights for the upcoming weekend.
 on:
   schedule:
-    - cron: '7 17 * * 1'  # Monday 5:07pm UTC = Monday 10:07am PT
+    - cron: '7 17 * * 1'  # Monday 5:07pm UTC = 10:07am PT
   workflow_dispatch:
     inputs:
       friday_date:
-        description: 'Friday date (YYYY-MM-DD), leave blank for next Friday'
+        description: 'Friday date (YYYY-MM-DD)'
         required: false
 
 jobs:
   seed:
     runs-on: ubuntu-latest
+    timeout-minutes: 45  # Expanded from 10 — ~15 min for 600+ searches
     permissions:
       contents: write
     steps:
@@ -27,21 +29,30 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Initialize DB if needed
+      - name: Initialize DB
         run: python monitor.py init
 
       - name: Seed flight schedules
         run: |
           if [ -n "${{ github.event.inputs.friday_date }}" ]; then
-            python monitor.py seed "${{ github.event.inputs.friday_date }}"
+            python monitor.py seed "${{ github.event.inputs.friday_date }}" --max-stops 1
           else
-            python monitor.py seed
+            python monitor.py seed --max-stops 1
           fi
 
-      - name: Commit database changes
+      - name: Commit database
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add gowild_monitor.db
-          git diff --cached --quiet || git commit -m "chore: seed weekend flight schedules [skip ci]"
-          git push
+          if git diff --cached --quiet; then
+            echo "No DB changes to commit."
+            exit 0
+          fi
+          git commit -m "chore: seed weekend flight schedules [skip ci]"
+          for i in 1 2 3; do
+            git push && break
+            echo "Push failed, retrying ($i/3)..."
+            sleep 5
+            git pull --rebase
+          done
