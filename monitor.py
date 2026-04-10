@@ -142,6 +142,25 @@ def detail(
     route_detail(origin, destination)
 
 
+@app.command()
+def confidence(
+    min_weekends: int = typer.Option(2, "--min-weekends", "-w", help="Minimum weekends of data"),
+):
+    """Show per-route availability confidence over time."""
+    from analysis import confidence_report
+    confidence_report(min_weekends)
+
+
+@app.command()
+def safe(
+    min_pct: float = typer.Option(75.0, "--min-pct", "-p", help="Minimum availability %"),
+    min_weekends: int = typer.Option(2, "--min-weekends", "-w", help="Minimum weekends of data"),
+):
+    """Show destinations safe for GoWild booking (reliable outbound + return)."""
+    from analysis import safe_destinations
+    safe_destinations(min_pct, min_weekends)
+
+
 @app.command(name="cron-install")
 def cron_install():
     """Install crontab entries for automatic monitoring."""
