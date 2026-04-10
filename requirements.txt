@@ -3,3 +3,4 @@ pytz
 typer
 rich
 python-dateutil
+pytest

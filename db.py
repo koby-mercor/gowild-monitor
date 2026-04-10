@@ -180,6 +180,41 @@ def get_flights_needing_check(conn, now_iso: str, tolerance_minutes: int = 10) -
     ).fetchall()
 
 
+def get_unchecked_flights_past_t24h(
+    conn, now_iso: str, max_staleness_hours: float = 6.0
+) -> List[sqlite3.Row]:
+    """Get flights where T-24h has passed, not yet checked, not too stale.
+
+    Returns flights ordered by freshness: those closest to the T-24h mark
+    (i.e., highest hours_until_dep, closest to 24.0) come first.
+
+    A flight departing in 23.5h means T-24h passed 0.5h ago — very fresh.
+    A flight departing in 18h means T-24h passed 6h ago — stale.
+    """
+    min_hours = 24.0 - max_staleness_hours
+    return conn.execute(
+        """
+        SELECT
+            fs.schedule_id, fs.departure_pt, fs.arrival_pt, fs.direction,
+            fs.duration_min, fs.stops, fs.weekend_of,
+            r.route_id, r.origin, r.destination,
+            (julianday(fs.departure_pt) - julianday(:now)) * 24.0 AS hours_until_dep
+        FROM flight_schedules fs
+        JOIN routes r ON r.route_id = fs.route_id
+        LEFT JOIN availability_checks ac
+            ON ac.schedule_id = fs.schedule_id
+            AND ac.check_type = 'T-24h'
+            AND ac.search_success = 1
+        WHERE r.active = 1
+          AND ac.check_id IS NULL
+          AND (julianday(fs.departure_pt) - julianday(:now)) * 24.0 > :min_hours
+          AND (julianday(fs.departure_pt) - julianday(:now)) * 24.0 < 24.0
+        ORDER BY (julianday(fs.departure_pt) - julianday(:now)) * 24.0 DESC
+        """,
+        {"now": now_iso, "min_hours": min_hours},
+    ).fetchall()
+
+
 def log_entry(conn, run_id: str, level: str, message: str):
     conn.execute(
         "INSERT INTO check_log (run_id, level, message) VALUES (?, ?, ?)",
