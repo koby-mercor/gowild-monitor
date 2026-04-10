@@ -1,11 +1,11 @@
 name: GoWild Dispatch
 
 # Catch-up model: each run checks ALL flights past T-24h.
-# Run every 2 hours Thu-Mon to cover outbound (Fri/Sat) and return (Sun/Mon).
+# Run every 2 hours, every day — full week coverage.
 # GitHub Actions may skip some runs — the catch-up logic handles gaps.
 on:
   schedule:
-    - cron: '0 */2 * * 4,5,6,0,1'  # Every 2h on Thu-Mon (UTC)
+    - cron: '0 */2 * * *'  # Every 2h, every day
   workflow_dispatch: {}
 
 jobs:

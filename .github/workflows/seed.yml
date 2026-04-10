@@ -14,7 +14,7 @@ on:
 jobs:
   seed:
     runs-on: ubuntu-latest
-    timeout-minutes: 45  # Expanded from 10 — ~15 min for 600+ searches
+    timeout-minutes: 60  # ~25 min for ~1000 searches (full week, both directions)
     permissions:
       contents: write
     steps:

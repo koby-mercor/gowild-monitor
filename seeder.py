@@ -28,10 +28,8 @@ def seed_weekend(friday_date: str, max_stops: int = DEFAULT_MAX_STOPS) -> dict:
 
     fri_dt = datetime.strptime(friday_date, "%Y-%m-%d")
     dates = [
-        fri_dt.strftime("%Y-%m-%d"),                        # Friday
-        (fri_dt + timedelta(days=1)).strftime("%Y-%m-%d"),  # Saturday
-        (fri_dt + timedelta(days=2)).strftime("%Y-%m-%d"),  # Sunday
-        (fri_dt + timedelta(days=3)).strftime("%Y-%m-%d"),  # Monday
+        (fri_dt + timedelta(days=i)).strftime("%Y-%m-%d")
+        for i in range(7)  # Friday through Thursday (full week)
     ]
 
     stats = {"routes_checked": 0, "flights_found": 0, "flights_inserted": 0, "errors": 0}
