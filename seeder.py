@@ -1,59 +1,66 @@
 """Seed flight schedules by searching Google Flights for upcoming weekends."""
 
-import time
 import sys
+import time
 from datetime import datetime, timedelta
 
 import pytz
 
-from config import (
-    MONITORED_ROUTES, PACIFIC_TZ, RATE_LIMIT_SECONDS,
-    OUTBOUND_EARLIEST_HOUR, OUTBOUND_LATEST_HOUR,
-)
+from config import MONITORED_ROUTES, PACIFIC_TZ, RATE_LIMIT_SECONDS, DEFAULT_MAX_STOPS
 from db import db_session, get_or_create_route, insert_flight_schedule
-from gowild_search import search_flights, parse_flight_time, parse_duration_minutes
+from gowild_search import search_flights, FRONTIER_NONSTOP, parse_flight_time, parse_duration_minutes
 
 PT = pytz.timezone(PACIFIC_TZ)
 
 
-def seed_weekend(friday_date: str, max_stops: int = None) -> dict:
-    """Seed flight schedules for a specific weekend (outbound only).
+def _is_nonstop_route(origin: str, dest: str) -> bool:
+    return dest in FRONTIER_NONSTOP.get(origin, [])
+
+
+def seed_weekend(friday_date: str, max_stops: int = DEFAULT_MAX_STOPS) -> dict:
+    """Seed flight schedules for a weekend: all destinations, both directions, Fri-Mon.
 
     friday_date: 'YYYY-MM-DD' format, must be a Friday.
     Returns: {routes_checked, flights_found, flights_inserted, errors}
     """
+    if max_stops is None:
+        max_stops = DEFAULT_MAX_STOPS
+
     fri_dt = datetime.strptime(friday_date, "%Y-%m-%d")
-    sat_dt = fri_dt + timedelta(days=1)
-    fri_str = fri_dt.strftime("%Y-%m-%d")
-    sat_str = sat_dt.strftime("%Y-%m-%d")
+    dates = [
+        fri_dt.strftime("%Y-%m-%d"),                        # Friday
+        (fri_dt + timedelta(days=1)).strftime("%Y-%m-%d"),  # Saturday
+        (fri_dt + timedelta(days=2)).strftime("%Y-%m-%d"),  # Sunday
+        (fri_dt + timedelta(days=3)).strftime("%Y-%m-%d"),  # Monday
+    ]
 
     stats = {"routes_checked": 0, "flights_found": 0, "flights_inserted": 0, "errors": 0}
 
-    # Build route pairs
-    route_pairs = []
-    for origin, dests in MONITORED_ROUTES.items():
-        for dest in dests:
-            route_pairs.append((origin, dest))
+    # Build search list: (search_origin, search_dest, db_direction)
+    searches = []
+    for home_airport, destinations in MONITORED_ROUTES.items():
+        for dest in destinations:
+            searches.append((home_airport, dest, "outbound"))
+            searches.append((dest, home_airport, "return"))
 
-    total = len(route_pairs) * 2  # Friday + Saturday
+    total = len(searches) * len(dates)
     search_num = 0
 
     with db_session() as conn:
-        for origin, dest in route_pairs:
-            # Determine if nonstop (in the nonstop list from gowild_search)
-            from gowild_search import FRONTIER_NONSTOP
-            is_nonstop = 1 if dest in FRONTIER_NONSTOP.get(origin, []) else 0
-            route_id = get_or_create_route(conn, origin, dest, is_nonstop)
+        for search_origin, search_dest, direction in searches:
+            is_nonstop = 1 if _is_nonstop_route(search_origin, search_dest) else 0
+            route_id = get_or_create_route(conn, search_origin, search_dest, is_nonstop)
 
-            for date_str in [fri_str, sat_str]:
+            for date_str in dates:
                 search_num += 1
-                day = "Fri" if date_str == fri_str else "Sat"
-                sys.stdout.write(f"\r  [{search_num}/{total}] {origin}->{dest} {day}...          ")
+                sys.stdout.write(
+                    f"\r  [{search_num}/{total}] {search_origin}->{search_dest} {date_str} ({direction})...          "
+                )
                 sys.stdout.flush()
                 stats["routes_checked"] += 1
 
                 try:
-                    flights = search_flights(origin, dest, date_str, max_stops=max_stops)
+                    flights = search_flights(search_origin, search_dest, date_str, max_stops=max_stops)
                 except Exception as e:
                     stats["errors"] += 1
                     continue
@@ -62,20 +69,8 @@ def seed_weekend(friday_date: str, max_stops: int = None) -> dict:
                     if not f.dep_dt:
                         continue
 
-                    # Only keep flights in the outbound window
-                    is_friday = date_str == fri_str
-                    is_saturday = date_str == sat_str
-                    valid = False
-                    if is_friday and f.dep_dt.hour >= OUTBOUND_EARLIEST_HOUR:
-                        valid = True
-                    if is_saturday and f.dep_dt.hour < OUTBOUND_LATEST_HOUR:
-                        valid = True
-                    if not valid:
-                        continue
-
                     stats["flights_found"] += 1
 
-                    # Convert to Pacific-aware ISO string
                     dep_naive = f.dep_dt
                     dep_pt = PT.localize(dep_naive)
                     dep_iso = dep_pt.isoformat()
@@ -89,7 +84,7 @@ def seed_weekend(friday_date: str, max_stops: int = None) -> dict:
 
                     sid = insert_flight_schedule(
                         conn, route_id, dep_iso, arr_iso, dur_min,
-                        f.stops, "outbound", friday_date,
+                        f.stops, direction, friday_date,
                         f.departure, f.arrival,
                     )
                     if sid:
@@ -101,8 +96,11 @@ def seed_weekend(friday_date: str, max_stops: int = None) -> dict:
     return stats
 
 
-def seed_next_n_weekends(n: int = 4, max_stops: int = None) -> dict:
+def seed_next_n_weekends(n: int = 4, max_stops: int = DEFAULT_MAX_STOPS) -> dict:
     """Seed schedules for the next N weekends."""
+    if max_stops is None:
+        max_stops = DEFAULT_MAX_STOPS
+
     today = datetime.now()
     days_to_friday = (4 - today.weekday()) % 7
     if days_to_friday == 0 and today.hour >= 18:
