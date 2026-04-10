@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Optional
 
 from config import MAX_RETRIES, RETRY_DELAY_SECONDS
+from gowild_search import search_flights
 
 
 def parse_price_cents(price_str: str) -> Optional[int]:
@@ -27,8 +28,6 @@ def check_flight_availability(
     Returns dict with: flight_found, price, price_cents, num_frontier_results,
     matched_flight (dict or None), error, duration_ms.
     """
-    from gowild_search import search_flights, parse_flight_time
-
     result = {
         "flight_found": False,
         "price": None,
@@ -107,3 +106,66 @@ def _flight_to_dict(f) -> dict:
         "stops": f.stops,
         "price": f.price,
     }
+
+
+def batch_check_flights(
+    origin: str, destination: str, date_str: str,
+    flights_to_check: list,
+    max_stops: int = None, time_tolerance_min: int = 5,
+) -> list:
+    """Check multiple flights on the same route+date with a single Google Flights search.
+
+    flights_to_check: list of dicts with at least 'schedule_id' and 'departure_pt'.
+    Returns: list of result dicts in the same order, one per flight.
+    """
+    start = time.time()
+    search_results = None
+    last_error = None
+
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            search_results = search_flights(origin, destination, date_str, max_stops=max_stops)
+            last_error = None
+            break
+        except Exception as e:
+            last_error = str(e)
+            if attempt < MAX_RETRIES:
+                time.sleep(RETRY_DELAY_SECONDS)
+
+    elapsed_ms = int((time.time() - start) * 1000)
+
+    results = []
+    for flight in flights_to_check:
+        result = {
+            "schedule_id": flight["schedule_id"],
+            "flight_found": False,
+            "price": None,
+            "price_cents": None,
+            "num_frontier_results": 0,
+            "matched_flight": None,
+            "error": last_error,
+            "duration_ms": elapsed_ms,
+        }
+
+        if search_results is None:
+            results.append(result)
+            continue
+
+        result["num_frontier_results"] = len(search_results)
+        result["error"] = None
+
+        dep_dt = datetime.fromisoformat(flight["departure_pt"])
+        for sr in search_results:
+            if sr.dep_dt is None:
+                continue
+            total_diff = abs(sr.dep_dt.hour - dep_dt.hour) * 60 + abs(sr.dep_dt.minute - dep_dt.minute)
+            if total_diff <= time_tolerance_min:
+                result["flight_found"] = True
+                result["price"] = sr.price
+                result["price_cents"] = parse_price_cents(sr.price)
+                result["matched_flight"] = _flight_to_dict(sr)
+                break
+
+        results.append(result)
+
+    return results
