@@ -71,7 +71,7 @@ def seed(
 
 @app.command()
 def dispatch():
-    """Check flights due now (T-24h or T-23h). Called by cron."""
+    """Check all flights past T-24h (catch-up model). Called by cron."""
     from scheduler import dispatch as run_dispatch
     run_dispatch()
 

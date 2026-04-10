@@ -150,35 +150,6 @@ def insert_availability_check(
     return cur.lastrowid
 
 
-def check_already_done(conn, schedule_id: int, check_type: str) -> bool:
-    row = conn.execute(
-        "SELECT 1 FROM availability_checks WHERE schedule_id = ? AND check_type = ? AND search_success = 1",
-        (schedule_id, check_type),
-    ).fetchone()
-    return row is not None
-
-
-def get_flights_needing_check(conn, now_iso: str, tolerance_minutes: int = 10) -> List[sqlite3.Row]:
-    return conn.execute(
-        """
-        SELECT
-            fs.schedule_id, fs.departure_pt, fs.arrival_pt, fs.direction,
-            fs.duration_min, fs.stops, fs.weekend_of,
-            r.route_id, r.origin, r.destination,
-            (julianday(fs.departure_pt) - julianday(:now)) * 24.0 AS hours_until_dep
-        FROM flight_schedules fs
-        JOIN routes r ON r.route_id = fs.route_id
-        WHERE r.active = 1
-          AND fs.direction = 'outbound'
-          AND (
-            ABS((julianday(fs.departure_pt) - julianday(:now)) * 24.0 - 24.0) * 60 <= :tol
-            OR
-            ABS((julianday(fs.departure_pt) - julianday(:now)) * 24.0 - 23.0) * 60 <= :tol
-          )
-        """,
-        {"now": now_iso, "tol": tolerance_minutes},
-    ).fetchall()
-
 
 def get_unchecked_flights_past_t24h(
     conn, now_iso: str, max_staleness_hours: float = 6.0
