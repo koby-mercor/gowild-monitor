@@ -1,5 +1,6 @@
 """Database layer for GoWild availability monitor."""
 
+import os
 import sqlite3
 from contextlib import contextmanager
 from typing import List, Optional
@@ -69,7 +70,7 @@ CREATE INDEX IF NOT EXISTS idx_routes_pair
 
 
 def get_connection(db_path=None):
-    db = db_path or str(DB_PATH)
+    db = db_path or os.environ.get("GOWILD_DB_PATH") or str(DB_PATH)
     conn = sqlite3.connect(db)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")

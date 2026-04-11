@@ -1,9 +1,12 @@
 """Flask web app for the GoWild flight availability monitor dashboard."""
 
+import os
+import shutil
+
 from flask import Flask, jsonify, render_template
 
 from db import get_connection, init_db
-from config import BAY_AREA_AIRPORTS, INTERNATIONAL_DESTS
+from config import DB_PATH, BAY_AREA_AIRPORTS, INTERNATIONAL_DESTS
 
 # airports.py will define: AIRPORTS = {code: (lat, lng, city), ...}
 try:
@@ -13,8 +16,16 @@ except ImportError:
 
 app = Flask(__name__)
 
-# Ensure DB schema is up-to-date (runs migration if needed)
-init_db()
+# On Vercel (read-only filesystem), copy the bundled DB to /tmp so we can
+# run migrations and use WAL journal mode.
+if os.environ.get("VERCEL"):
+    _tmp_db = "/tmp/gowild_monitor.db"
+    if not os.path.exists(_tmp_db):
+        shutil.copy2(str(DB_PATH), _tmp_db)
+    os.environ["GOWILD_DB_PATH"] = _tmp_db
+    init_db(_tmp_db)
+else:
+    init_db()
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
