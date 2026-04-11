@@ -44,7 +44,10 @@ jobs:
           git commit -m "chore: update availability data [skip ci]"
           for i in 1 2 3; do
             git push && break
-            echo "Push failed, retrying ($i/3)..."
+            echo "Push conflict (likely concurrent run), resetting to remote..."
             sleep 5
-            git pull --rebase
+            git fetch origin main
+            git reset --hard origin/main
+            git add gowild_monitor.db
+            git commit -m "chore: update availability data [skip ci]" || true
           done
