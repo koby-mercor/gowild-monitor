@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS flight_schedules (
     duration_min    INTEGER,
     stops           INTEGER NOT NULL DEFAULT 0,
     direction       TEXT NOT NULL CHECK(direction IN ('outbound', 'return')),
-    weekend_of      TEXT NOT NULL,
+    week_of         TEXT NOT NULL,
     raw_departure   TEXT,
     raw_arrival     TEXT,
     discovered_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S','now')),
@@ -59,8 +59,8 @@ CREATE TABLE IF NOT EXISTS check_log (
 
 CREATE INDEX IF NOT EXISTS idx_checks_schedule_type
     ON availability_checks(schedule_id, check_type);
-CREATE INDEX IF NOT EXISTS idx_schedules_weekend
-    ON flight_schedules(weekend_of);
+CREATE INDEX IF NOT EXISTS idx_schedules_week
+    ON flight_schedules(week_of);
 CREATE INDEX IF NOT EXISTS idx_schedules_departure
     ON flight_schedules(departure_pt);
 CREATE INDEX IF NOT EXISTS idx_routes_pair
@@ -90,9 +90,24 @@ def db_session(db_path=None):
         conn.close()
 
 
+def _migrate_weekend_to_week_of(conn):
+    """Rename weekend_of -> week_of and shift Friday anchors to Monday if needed."""
+    rows = conn.execute("PRAGMA table_info(flight_schedules)").fetchall()
+    columns = [row["name"] for row in rows]
+    if "weekend_of" not in columns:
+        return
+    conn.execute("ALTER TABLE flight_schedules RENAME COLUMN weekend_of TO week_of")
+    conn.execute("UPDATE flight_schedules SET week_of = date(week_of, '-4 days')")
+    conn.execute("DROP INDEX IF EXISTS idx_schedules_weekend")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_schedules_week ON flight_schedules(week_of)"
+    )
+
+
 def init_db(db_path=None):
     with db_session(db_path) as conn:
         conn.executescript(SCHEMA_SQL)
+        _migrate_weekend_to_week_of(conn)
 
 
 def get_or_create_route(conn, origin: str, destination: str, is_nonstop: int = 1) -> int:
@@ -109,16 +124,16 @@ def get_or_create_route(conn, origin: str, destination: str, is_nonstop: int = 1
 
 def insert_flight_schedule(
     conn, route_id: int, departure_pt: str, arrival_pt: str,
-    duration_min: int, stops: int, direction: str, weekend_of: str,
+    duration_min: int, stops: int, direction: str, week_of: str,
     raw_departure: str = "", raw_arrival: str = "",
 ) -> Optional[int]:
     cur = conn.execute(
         """INSERT OR IGNORE INTO flight_schedules
            (route_id, departure_pt, arrival_pt, duration_min, stops, direction,
-            weekend_of, raw_departure, raw_arrival)
+            week_of, raw_departure, raw_arrival)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (route_id, departure_pt, arrival_pt, duration_min, stops, direction,
-         weekend_of, raw_departure, raw_arrival),
+         week_of, raw_departure, raw_arrival),
     )
     if cur.lastrowid and cur.rowcount > 0:
         return cur.lastrowid
@@ -171,7 +186,7 @@ def get_unchecked_flights_past_t24h(
         """
         SELECT
             fs.schedule_id, fs.departure_pt, fs.arrival_pt, fs.direction,
-            fs.duration_min, fs.stops, fs.weekend_of,
+            fs.duration_min, fs.stops, fs.week_of,
             r.route_id, r.origin, r.destination,
             (julianday(fs.departure_pt) - julianday(:now)) * 24.0 AS hours_until_dep
         FROM flight_schedules fs

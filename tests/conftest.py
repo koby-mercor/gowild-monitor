@@ -35,15 +35,15 @@ def seeded_db(test_db):
         r5 = get_or_create_route(conn, "SFO", "LAX", 1)
 
         insert_flight_schedule(conn, r1, "2026-04-11T22:00:00-07:00", "2026-04-12T00:30:00-07:00",
-                               150, 0, "outbound", "2026-04-10")
+                               150, 0, "outbound", "2026-04-06")
         insert_flight_schedule(conn, r2, "2026-04-11T23:30:00-07:00", "2026-04-12T03:00:00-07:00",
-                               210, 1, "outbound", "2026-04-10")
+                               210, 1, "outbound", "2026-04-06")
         insert_flight_schedule(conn, r3, "2026-04-12T06:00:00-07:00", "2026-04-12T14:00:00-07:00",
-                               300, 1, "outbound", "2026-04-10")
+                               300, 1, "outbound", "2026-04-06")
         insert_flight_schedule(conn, r4, "2026-04-11T15:00:00-07:00", "2026-04-11T17:00:00-07:00",
-                               120, 0, "outbound", "2026-04-10")
+                               120, 0, "outbound", "2026-04-06")
         insert_flight_schedule(conn, r5, "2026-04-11T23:00:00-07:00", "2026-04-12T00:30:00-07:00",
-                               90, 0, "outbound", "2026-04-10")
+                               90, 0, "outbound", "2026-04-06")
 
         # Mark flight 5 (SFO->LAX) as already checked
         conn.execute(

@@ -44,7 +44,7 @@ def test_catchup_query_includes_return_flights(test_db):
     with db_session(test_db) as conn:
         r = get_or_create_route(conn, "LAS", "SFO", 1)
         insert_flight_schedule(conn, r, "2026-04-11T23:00:00-07:00", "2026-04-12T01:00:00-07:00",
-                               120, 0, "return", "2026-04-10")
+                               120, 0, "return", "2026-04-06")
 
     now_iso = "2026-04-11T00:00:00-07:00"
     with db_session(test_db) as conn:
