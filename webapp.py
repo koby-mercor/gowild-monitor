@@ -55,7 +55,7 @@ def api_routes():
         rows = conn.execute(
             """
             SELECT r.origin, r.destination, r.is_nonstop, fs.direction,
-                COUNT(DISTINCT fs.weekend_of) AS weekends,
+                COUNT(DISTINCT fs.week_of) AS weeks,
                 COUNT(*) AS total_checks,
                 SUM(ac.flight_found) AS times_found,
                 ROUND(100.0 * SUM(ac.flight_found) / COUNT(*), 1) AS availability_pct,
@@ -83,13 +83,13 @@ def api_routes():
                 "is_nonstop": bool(row["is_nonstop"]),
                 "outbound": None,
                 "return": None,
-                "weekends": 0,
+                "weeks": 0,
             }
 
         direction = row["direction"]
-        weekends = row["weekends"] or 0
-        if weekends > route_map[key]["weekends"]:
-            route_map[key]["weekends"] = weekends
+        wks = row["weeks"] or 0
+        if wks > route_map[key]["weeks"]:
+            route_map[key]["weeks"] = wks
 
         # direction may be NULL when there are no flight_schedules yet (LEFT JOIN)
         if direction in ("outbound", "return"):
@@ -118,14 +118,14 @@ def api_route_detail(origin, destination):
         rows = conn.execute(
             """
             SELECT fs.schedule_id, fs.departure_pt, fs.arrival_pt, fs.duration_min,
-                fs.stops, fs.direction, fs.weekend_of,
+                fs.stops, fs.direction, fs.week_of,
                 ac.check_type, ac.checked_at, ac.hours_before_dep,
                 ac.flight_found, ac.price, ac.num_results
             FROM flight_schedules fs
             JOIN routes r ON r.route_id = fs.route_id
             LEFT JOIN availability_checks ac ON ac.schedule_id = fs.schedule_id
             WHERE r.origin = ? AND r.destination = ?
-            ORDER BY fs.weekend_of DESC, fs.direction, fs.departure_pt
+            ORDER BY fs.week_of DESC, fs.direction, fs.departure_pt
             """,
             (origin.upper(), destination.upper()),
         ).fetchall()
@@ -144,7 +144,7 @@ def api_route_detail(origin, destination):
                 "duration_min": row["duration_min"],
                 "stops": row["stops"],
                 "direction": row["direction"],
-                "weekend_of": row["weekend_of"],
+                "week_of": row["week_of"],
                 "checks": [],
             }
         # Only append if there is an actual check (LEFT JOIN may yield NULLs)
@@ -174,7 +174,7 @@ def api_destinations():
         rows = conn.execute(
             """
             SELECT r.origin, r.destination, r.is_nonstop, fs.direction,
-                COUNT(DISTINCT fs.weekend_of) AS weekends,
+                COUNT(DISTINCT fs.week_of) AS weeks,
                 COUNT(*) AS total_checks,
                 SUM(ac.flight_found) AS times_found,
                 ROUND(100.0 * SUM(ac.flight_found) / COUNT(*), 1) AS availability_pct,
@@ -210,11 +210,27 @@ def api_destinations():
             flight_counts[far] = flight_counts.get(far, 0) + fc["cnt"]
             if fc["direction"] == "return":
                 return_flight_dests.add(far)
+
+        # Get stops info per far destination
+        stops_info = {}
+        stops_rows = conn.execute(
+            """
+            SELECT
+                CASE WHEN fs.direction = 'return' THEN r.origin ELSE r.destination END AS far_dest,
+                MIN(fs.stops) AS min_stops, MAX(fs.stops) AS max_stops
+            FROM flight_schedules fs
+            JOIN routes r ON r.route_id = fs.route_id
+            WHERE r.active = 1
+            GROUP BY far_dest
+            """
+        ).fetchall()
+        for sr in stops_rows:
+            stops_info[sr["far_dest"]] = {"min": sr["min_stops"], "max": sr["max_stops"]}
     finally:
         conn.close()
 
     # Aggregate by destination across all home airports
-    # Structure: {dest: {origins: set, directions: {outbound: {checks,found,pct,avg_price}, return: ...}, weekends: int}}
+    # Structure: {dest: {origins: set, directions: {outbound: {checks,found,pct,avg_price}, return: ...}, weeks: int}}
     dest_map = {}
 
     for row in rows:
@@ -227,7 +243,7 @@ def api_destinations():
             dest_map[dest] = {
                 "destination": dest,
                 "origins": set(),
-                "weekends": 0,
+                "weeks": 0,
                 "_dir_accum": {
                     "outbound": {"checks": 0, "found": 0, "price_sum": 0, "price_count": 0},
                     "return":   {"checks": 0, "found": 0, "price_sum": 0, "price_count": 0},
@@ -239,9 +255,9 @@ def api_destinations():
         if home in ('SFO', 'SJC'):
             dest_map[dest]["origins"].add(home)
 
-        weekends = row["weekends"] or 0
-        if weekends > dest_map[dest]["weekends"]:
-            dest_map[dest]["weekends"] = weekends
+        wks = row["weeks"] or 0
+        if wks > dest_map[dest]["weeks"]:
+            dest_map[dest]["weeks"] = wks
 
         if direction in ("outbound", "return"):
             acc = dest_map[dest]["_dir_accum"][direction]
@@ -263,10 +279,10 @@ def api_destinations():
             "avg_price": int(avg_price) if avg_price is not None else None,
         }
 
-    def _confidence(weekends, combined_pct):
-        if combined_pct is not None and weekends >= 3 and combined_pct >= 75:
+    def _confidence(weeks, combined_pct):
+        if combined_pct is not None and weeks >= 3 and combined_pct >= 75:
             return "high"
-        if weekends >= 2:
+        if weeks >= 2:
             return "medium"
         return "low"
 
@@ -280,17 +296,40 @@ def api_destinations():
 
         has_return = dest in return_flight_dests
         is_intl = dest in INTERNATIONAL_DESTS
+        si = stops_info.get(dest, {"min": 0, "max": 0})
+        min_stops = si["min"]
+        max_stops = si["max"]
+
+        # Build stops description
+        if max_stops == 0:
+            stops_label = "Nonstop"
+        elif min_stops == 0 and max_stops > 0:
+            stops_label = "Nonstop + %d-stop" % max_stops
+        elif min_stops == max_stops:
+            stops_label = "%d stop" % min_stops
+        else:
+            stops_label = "%d-%d stops" % (min_stops, max_stops)
+
+        # Connection hub — Frontier connections from Bay Area almost always go through DEN
+        connection_hub = None
+        if max_stops > 0:
+            connection_hub = "via DEN"
+
         result.append({
             "destination": dest,
             "origins": sorted(data["origins"]),
-            "weekends": data["weekends"],
+            "weeks": data["weeks"],
             "outbound": outbound,
             "return": ret if has_return else None,
             "has_return_flights": has_return,
             "is_international": is_intl,
             "booking_window": "10 days" if is_intl else "24 hours",
+            "stops_label": stops_label,
+            "connection_hub": connection_hub,
+            "min_stops": min_stops,
+            "max_stops": max_stops,
             "combined_pct": combined_pct,
-            "confidence": _confidence(data["weekends"], combined_pct),
+            "confidence": _confidence(data["weeks"], combined_pct),
             "flight_count": flight_counts.get(dest, 0),
         })
 
@@ -313,7 +352,7 @@ def api_stats():
                 (SELECT COUNT(*) FROM flight_schedules) AS total_flights,
                 (SELECT COUNT(*) FROM availability_checks WHERE search_success = 1) AS total_checks,
                 (SELECT MAX(checked_at) FROM availability_checks) AS last_check,
-                (SELECT COUNT(DISTINCT weekend_of) FROM flight_schedules) AS weekends_tracked,
+                (SELECT COUNT(DISTINCT week_of) FROM flight_schedules) AS weeks_tracked,
                 (SELECT CAST(julianday(MAX(checked_at)) - julianday(MIN(checked_at)) AS INTEGER)
                  FROM availability_checks WHERE search_success = 1) AS days_of_data
             """
@@ -326,7 +365,7 @@ def api_stats():
         "total_flights": row["total_flights"],
         "total_checks": row["total_checks"],
         "last_check": row["last_check"],
-        "weekends_tracked": row["weekends_tracked"],
+        "weeks_tracked": row["weeks_tracked"],
         "days_of_data": row["days_of_data"] or 0,
     })
 
