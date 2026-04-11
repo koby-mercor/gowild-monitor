@@ -108,7 +108,7 @@ def route_detail(origin: str, destination: str):
     conn = get_connection()
     rows = conn.execute(
         """
-        SELECT fs.departure_pt, fs.weekend_of, fs.stops,
+        SELECT fs.departure_pt, fs.week_of, fs.stops,
             ac.check_type, ac.checked_at, ac.hours_before_dep,
             ac.flight_found, ac.price, ac.num_results,
             ac.search_success, ac.error_message
@@ -127,7 +127,7 @@ def route_detail(origin: str, destination: str):
         return
 
     table = Table(title=f"Check History: {origin} -> {destination}")
-    table.add_column("Weekend", style="cyan")
+    table.add_column("Week", style="cyan")
     table.add_column("Departure", style="dim")
     table.add_column("Check", justify="center")
     table.add_column("Found", justify="center")
@@ -141,7 +141,7 @@ def route_detail(origin: str, destination: str):
             found_text = "ERR"
             found_style = "yellow"
         table.add_row(
-            r["weekend_of"],
+            r["week_of"],
             r["departure_pt"][:16],
             r["check_type"],
             f"[{found_style}]{found_text}[/{found_style}]",
@@ -213,14 +213,14 @@ def status_summary():
         console.print("  [dim]No checks recorded yet.[/dim]")
 
 
-def confidence_report(min_weekends: int = 2):
+def confidence_report(min_weeks: int = 2):
     """Show per-route availability confidence based on historical data."""
     conn = get_connection()
     rows = conn.execute(
         """
         SELECT r.origin, r.destination,
             fs.direction,
-            COUNT(DISTINCT fs.weekend_of) AS weekends,
+            COUNT(DISTINCT fs.week_of) AS weeks,
             COUNT(*) AS total_checks,
             SUM(ac.flight_found) AS times_found,
             ROUND(100.0 * SUM(ac.flight_found) / COUNT(*), 1) AS availability_pct,
@@ -231,21 +231,21 @@ def confidence_report(min_weekends: int = 2):
         JOIN routes r ON r.route_id = fs.route_id
         WHERE ac.check_type = 'T-24h' AND ac.search_success = 1
         GROUP BY r.origin, r.destination, fs.direction
-        HAVING COUNT(DISTINCT fs.weekend_of) >= ?
-        ORDER BY availability_pct DESC, weekends DESC
+        HAVING COUNT(DISTINCT fs.week_of) >= ?
+        ORDER BY availability_pct DESC, weeks DESC
         """,
-        (min_weekends,),
+        (min_weeks,),
     ).fetchall()
     conn.close()
 
     if not rows:
-        console.print(f"[yellow]Not enough data yet (need {min_weekends}+ weekends).[/yellow]")
+        console.print(f"[yellow]Not enough data yet (need {min_weeks}+ weeks).[/yellow]")
         return
 
-    table = Table(title=f"Route Confidence (min {min_weekends} weekends)")
+    table = Table(title=f"Route Confidence (min {min_weeks} weeks)")
     table.add_column("Route", style="cyan")
     table.add_column("Dir", style="dim")
-    table.add_column("Wkds", justify="right")
+    table.add_column("Wks", justify="right")
     table.add_column("Checks", justify="right")
     table.add_column("Avail", justify="right")
     table.add_column("Rate", justify="right")
@@ -260,7 +260,7 @@ def confidence_report(min_weekends: int = 2):
         table.add_row(
             f"{r['origin']}->{r['destination']}",
             r["direction"][:3],
-            str(r["weekends"]),
+            str(r["weeks"]),
             str(r["total_checks"]),
             str(r["times_found"]),
             f"[{rate_style}]{rate}%[/{rate_style}]",
@@ -271,7 +271,7 @@ def confidence_report(min_weekends: int = 2):
     console.print(table)
 
 
-def safe_destinations(min_pct: float = 75.0, min_weekends: int = 2):
+def safe_destinations(min_pct: float = 75.0, min_weeks: int = 2):
     """Show destinations where both outbound and return have reliable availability."""
     conn = get_connection()
 
@@ -281,7 +281,7 @@ def safe_destinations(min_pct: float = 75.0, min_weekends: int = 2):
             SELECT
                 CASE WHEN fs.direction = 'outbound' THEN r.destination ELSE r.origin END AS dest,
                 fs.direction,
-                COUNT(DISTINCT fs.weekend_of) AS weekends,
+                COUNT(DISTINCT fs.week_of) AS weeks,
                 COUNT(*) AS total_checks,
                 SUM(ac.flight_found) AS times_found,
                 ROUND(100.0 * SUM(ac.flight_found) / COUNT(*), 1) AS pct,
@@ -291,12 +291,12 @@ def safe_destinations(min_pct: float = 75.0, min_weekends: int = 2):
             JOIN routes r ON r.route_id = fs.route_id
             WHERE ac.check_type = 'T-24h' AND ac.search_success = 1
             GROUP BY dest, fs.direction
-            HAVING COUNT(DISTINCT fs.weekend_of) >= :min_wk
+            HAVING COUNT(DISTINCT fs.week_of) >= :min_wk
         )
         SELECT
             o.dest,
-            o.pct AS out_pct, o.weekends AS out_wk, o.avg_price AS out_price,
-            r.pct AS ret_pct, r.weekends AS ret_wk, r.avg_price AS ret_price,
+            o.pct AS out_pct, o.weeks AS out_wk, o.avg_price AS out_price,
+            r.pct AS ret_pct, r.weeks AS ret_wk, r.avg_price AS ret_price,
             ROUND((o.pct + r.pct) / 2.0, 1) AS combined_pct
         FROM route_stats o
         JOIN route_stats r ON o.dest = r.dest
@@ -304,23 +304,23 @@ def safe_destinations(min_pct: float = 75.0, min_weekends: int = 2):
           AND o.pct >= :min_pct AND r.pct >= :min_pct
         ORDER BY combined_pct DESC
         """,
-        {"min_wk": min_weekends, "min_pct": min_pct},
+        {"min_wk": min_weeks, "min_pct": min_pct},
     ).fetchall()
     conn.close()
 
     if not rows:
         console.print(f"[yellow]No destinations meet the {min_pct}% threshold yet.[/yellow]")
-        console.print("[dim]Need more weekends of data. Run 'confidence' to see current rates.[/dim]")
+        console.print("[dim]Need more weeks of data. Run 'confidence' to see current rates.[/dim]")
         return
 
-    table = Table(title=f"Safe GoWild Destinations (>{min_pct}% availability, {min_weekends}+ weekends)")
+    table = Table(title=f"Safe GoWild Destinations (>{min_pct}% availability, {min_weeks}+ weeks)")
     table.add_column("Destination", style="bold cyan")
     table.add_column("Out Rate", justify="right")
     table.add_column("Out Avg $", justify="right")
     table.add_column("Ret Rate", justify="right")
     table.add_column("Ret Avg $", justify="right")
     table.add_column("Combined", justify="right")
-    table.add_column("Weekends", justify="right", style="dim")
+    table.add_column("Weeks", justify="right", style="dim")
 
     for r in rows:
         out_style = "green" if r["out_pct"] >= 75 else "yellow"
@@ -340,4 +340,4 @@ def safe_destinations(min_pct: float = 75.0, min_weekends: int = 2):
         )
 
     console.print(table)
-    console.print("\n[dim]Tip: Rates improve in accuracy over more weekends of data.[/dim]")
+    console.print("\n[dim]Tip: Rates improve in accuracy over more weeks of data.[/dim]")

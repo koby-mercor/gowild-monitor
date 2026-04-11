@@ -15,7 +15,7 @@ app = typer.Typer(help="GoWild flight availability monitor")
 
 PYTHON_PATH = sys.executable
 CRON_DISPATCH = f"*/15 * * * * cd {PROJECT_DIR} && {PYTHON_PATH} {PROJECT_DIR}/monitor.py dispatch >> {LOG_DIR}/cron.log 2>&1"
-CRON_SEED = f'7 9 * * 1 cd {PROJECT_DIR} && {PYTHON_PATH} {PROJECT_DIR}/monitor.py seed $(date -v+fri +\\%Y-\\%m-\\%d) >> {LOG_DIR}/seed.log 2>&1'
+CRON_SEED = f'7 9 * * 1 cd {PROJECT_DIR} && {PYTHON_PATH} {PROJECT_DIR}/monitor.py seed $(date -v+mon +\\%Y-\\%m-\\%d) >> {LOG_DIR}/seed.log 2>&1'
 CRON_MARKER = "# gowild-monitor"
 
 
@@ -45,26 +45,26 @@ def init():
 
 @app.command()
 def seed(
-    friday_date: str = typer.Argument(None, help="Friday date YYYY-MM-DD (default: next Friday)"),
-    weeks: int = typer.Option(1, "--weeks", "-w", help="Number of weekends to seed"),
+    start_date: str = typer.Argument(None, help="Monday date YYYY-MM-DD (default: next Monday)"),
+    weeks: int = typer.Option(1, "--weeks", "-w", help="Number of weeks to seed"),
     max_stops: Optional[int] = typer.Option(None, "--max-stops", help="Max connections"),
 ):
     """Seed flight schedules by searching Google Flights."""
-    from seeder import seed_weekend, seed_next_n_weekends
+    from seeder import seed_week, seed_next_n_weeks
 
-    if friday_date is None:
+    if start_date is None:
         today = datetime.now()
-        days_to_friday = (4 - today.weekday()) % 7
-        if days_to_friday == 0 and today.hour >= 18:
-            days_to_friday = 7
-        friday_date = (today + timedelta(days=days_to_friday)).strftime("%Y-%m-%d")
+        days_to_monday = (0 - today.weekday()) % 7
+        if days_to_monday == 0 and today.hour >= 18:
+            days_to_monday = 7
+        start_date = (today + timedelta(days=days_to_monday)).strftime("%Y-%m-%d")
 
     if weeks > 1:
-        stats = seed_next_n_weekends(weeks, max_stops=max_stops)
-        typer.echo(f"\nSeeded {stats['weekends_seeded']} weekends, {stats['total_inserted']} new schedules.")
+        stats = seed_next_n_weeks(weeks, max_stops=max_stops)
+        typer.echo(f"\nSeeded {stats['weeks_seeded']} weeks, {stats['total_inserted']} new schedules.")
     else:
-        typer.echo(f"Seeding weekend of {friday_date}...")
-        stats = seed_weekend(friday_date, max_stops=max_stops)
+        typer.echo(f"Seeding week of {start_date}...")
+        stats = seed_week(start_date, max_stops=max_stops)
         typer.echo(f"Routes checked: {stats['routes_checked']}, Flights found: {stats['flights_found']}, "
                     f"Inserted: {stats['flights_inserted']}, Errors: {stats['errors']}")
 
@@ -144,21 +144,21 @@ def detail(
 
 @app.command()
 def confidence(
-    min_weekends: int = typer.Option(2, "--min-weekends", "-w", help="Minimum weekends of data"),
+    min_weeks: int = typer.Option(2, "--min-weeks", "-w", help="Minimum weeks of data"),
 ):
     """Show per-route availability confidence over time."""
     from analysis import confidence_report
-    confidence_report(min_weekends)
+    confidence_report(min_weeks)
 
 
 @app.command()
 def safe(
     min_pct: float = typer.Option(75.0, "--min-pct", "-p", help="Minimum availability %"),
-    min_weekends: int = typer.Option(2, "--min-weekends", "-w", help="Minimum weekends of data"),
+    min_weeks: int = typer.Option(2, "--min-weeks", "-w", help="Minimum weeks of data"),
 ):
     """Show destinations safe for GoWild booking (reliable outbound + return)."""
     from analysis import safe_destinations
-    safe_destinations(min_pct, min_weekends)
+    safe_destinations(min_pct, min_weeks)
 
 
 @app.command(name="cron-install")
