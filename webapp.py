@@ -2,7 +2,7 @@
 
 from flask import Flask, jsonify, render_template
 
-from db import get_connection
+from db import get_connection, init_db
 from config import BAY_AREA_AIRPORTS, INTERNATIONAL_DESTS
 
 # airports.py will define: AIRPORTS = {code: (lat, lng, city), ...}
@@ -12,6 +12,9 @@ except ImportError:
     _AIRPORTS_RAW = {}
 
 app = Flask(__name__)
+
+# Ensure DB schema is up-to-date (runs migration if needed)
+init_db()
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
