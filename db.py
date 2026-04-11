@@ -92,6 +92,12 @@ def db_session(db_path=None):
 
 def _migrate_weekend_to_week_of(conn):
     """Rename weekend_of -> week_of and shift Friday anchors to Monday if needed."""
+    # Check if flight_schedules table exists at all (fresh DB won't have it yet)
+    table_exists = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='flight_schedules'"
+    ).fetchone()
+    if not table_exists:
+        return
     rows = conn.execute("PRAGMA table_info(flight_schedules)").fetchall()
     columns = [row["name"] for row in rows]
     if "weekend_of" not in columns:
@@ -106,8 +112,8 @@ def _migrate_weekend_to_week_of(conn):
 
 def init_db(db_path=None):
     with db_session(db_path) as conn:
-        conn.executescript(SCHEMA_SQL)
         _migrate_weekend_to_week_of(conn)
+        conn.executescript(SCHEMA_SQL)
 
 
 def get_or_create_route(conn, origin: str, destination: str, is_nonstop: int = 1) -> int:
