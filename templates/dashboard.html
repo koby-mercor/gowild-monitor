@@ -66,7 +66,7 @@
       </div>
       <div class="legend-item" style="margin-top:4px">
         <div class="legend-donut" style="background:var(--accent-blue);border-color:var(--accent-purple)"></div>
-        <span>Inner=Out / Ring=Ret</span>
+        <span>Dot = outbound, ring = return</span>
       </div>
       <div class="legend-item">
         <div class="legend-dot" style="background:var(--accent-blue);border:2px solid rgba(255,255,255,0.7)"></div>
@@ -168,8 +168,8 @@
           <div class="value font-mono" id="ds-ret-pct">--</div>
         </div>
         <div class="detail-stat-card">
-          <div class="label">Weekends</div>
-          <div class="value font-mono" id="ds-weekends">--</div>
+          <div class="label">Weeks</div>
+          <div class="value font-mono" id="ds-weeks">--</div>
         </div>
         <div class="detail-stat-card">
           <div class="label">Confidence</div>
@@ -318,14 +318,11 @@
     var dest = s.destinations || 0;
     var flights = s.total_flights || 0;
     var checks = s.total_checks || 0;
-    var days = s.days_of_data || 0;
-    el.innerHTML = dest + ' dest'
+    el.innerHTML = dest + ' destinations'
       + ' <span class="sep">&middot;</span> '
       + flights + ' flights'
       + ' <span class="sep">&middot;</span> '
-      + checks + ' checks'
-      + ' <span class="sep">&middot;</span> '
-      + days + ' days of data';
+      + checks + ' checks';
   }
 
   // ================================================================
@@ -380,21 +377,17 @@
       }).addTo(map);
       routeLine._destCode = route.destination;
 
-      // Hover on route line: highlight + show destination tooltip
+      // Hover on route line: highlight THIS line only + show destination tooltip
       (function(line, destCode) {
         line.on('mouseover', function() {
-          // Brighten all lines for this destination
-          state.mapLayers.routeLines.forEach(function(l) {
-            if (l._destCode === destCode) l.setStyle({ opacity: 0.6, weight: 2.5 });
-          });
-          // Show the destination marker tooltip
+          line.setStyle({ opacity: 0.6, weight: 2.5 });
           var marker = state.markerLookup[destCode];
           if (marker && marker.inner) marker.inner.openTooltip();
         });
         line.on('mouseout', function() {
-          state.mapLayers.routeLines.forEach(function(l) {
-            if (l._destCode === destCode) l.setStyle({ opacity: 0.12, weight: 1 });
-          });
+          // Don't clear if this destination is selected in sidebar
+          if (state._selectedDest === destCode) return;
+          line.setStyle({ opacity: 0.12, weight: 1 });
           var marker = state.markerLookup[destCode];
           if (marker && marker.inner) marker.inner.closeTooltip();
         });
@@ -472,6 +465,8 @@
           });
         });
         innerDot.on('mouseout', function() {
+          // Don't clear if this destination is selected in sidebar
+          if (state._selectedDest === destCode) return;
           state.mapLayers.routeLines.forEach(function(line) {
             if (line._destCode === destCode) {
               line.setStyle({ opacity: 0.12, weight: 1 });
@@ -525,11 +520,14 @@
     html += '<span class="tooltip-code">' + dest + '</span>';
     if (city) html += ' <span class="tooltip-city">' + city + '</span>';
 
-    // Nonstop or connecting + international badge
+    // Stops info + connection hub + international badge
     if (destData) {
       var tags = [];
-      tags.push('<span style="color:' + (destData.is_nonstop ? 'var(--accent-blue)' : 'var(--text-dim)') + '">'
-        + (destData.is_nonstop ? 'Nonstop' : '1+ stops') + '</span>');
+      var stopsLabel = destData.stops_label || (destData.is_nonstop ? 'Nonstop' : '1+ stops');
+      var stopsColor = stopsLabel === 'Nonstop' ? 'var(--accent-blue)' : 'var(--text-dim)';
+      var stopsText = stopsLabel;
+      if (destData.connection_hub) stopsText += ' <span style="color:var(--text-secondary)">' + destData.connection_hub + '</span>';
+      tags.push('<span style="color:' + stopsColor + '">' + stopsText + '</span>');
       if (destData.is_international) {
         tags.push('<span style="color:var(--accent-amber)">Intl · 10-day window</span>');
       }
@@ -641,11 +639,11 @@
         + '</div>'
         + '<div class="dest-card-badge">';
 
-      if (d.is_nonstop === true) {
-        headerHtml += '<span class="badge-stops badge-nonstop">Nonstop</span>';
-      } else if (d.is_nonstop === false) {
-        headerHtml += '<span class="badge-stops badge-connecting">1 stop</span>';
-      }
+      var stopsLabel = d.stops_label || (d.is_nonstop ? 'Nonstop' : '1+ stops');
+      var isNonstop = stopsLabel === 'Nonstop';
+      var badgeText = stopsLabel;
+      if (d.connection_hub && !isNonstop) badgeText += ' ' + d.connection_hub;
+      headerHtml += '<span class="badge-stops ' + (isNonstop ? 'badge-nonstop' : 'badge-connecting') + '">' + badgeText + '</span>';
 
       if (d.is_international) {
         headerHtml += '<span class="badge-stops" style="background:rgba(245,158,11,0.15);color:var(--accent-amber)">10-day</span>';
@@ -803,12 +801,31 @@
   //  DETAIL VIEW (in sidebar)
   // ================================================================
 
+  function _clearRouteHighlight() {
+    state.mapLayers.routeLines.forEach(function(line) {
+      line.setStyle({ opacity: 0.12, weight: 1 });
+    });
+  }
+
+  function _highlightRoutesForDest(destCode) {
+    state.mapLayers.routeLines.forEach(function(line) {
+      if (line._destCode === destCode) {
+        line.setStyle({ opacity: 0.6, weight: 2.5 });
+      }
+    });
+  }
+
   function showDetail(origin, dest) {
     var listEl = document.getElementById('sidebar-list');
     var detailEl = document.getElementById('sidebar-detail');
 
     listEl.classList.add('hidden');
     detailEl.classList.add('active');
+
+    // Highlight routes to this destination on the map
+    _clearRouteHighlight();
+    _highlightRoutesForDest(dest);
+    state._selectedDest = dest;
 
     var city = cityFor(dest);
     var destData = state.destLookup[dest];
@@ -857,7 +874,7 @@
       dsRet.style.color = 'var(--text-dim)';
     }
 
-    document.getElementById('ds-weekends').textContent = destData ? (destData.weekends || '--') : '--';
+    document.getElementById('ds-weeks').textContent = destData ? (destData.weeks || '--') : '--';
     var confEl = document.getElementById('ds-confidence');
     if (destData && destData.confidence) {
       confEl.innerHTML = '<span class="confidence-badge confidence-' + destData.confidence + '">' + destData.confidence + '</span>';
@@ -878,6 +895,10 @@
 
     detailEl.classList.remove('active');
     listEl.classList.remove('hidden');
+
+    // Clear route highlight
+    _clearRouteHighlight();
+    state._selectedDest = null;
   }
 
   document.getElementById('detail-back').addEventListener('click', hideDetail);
@@ -976,9 +997,9 @@
   }
 
   function renderDetailFlights(schedules) {
-    // Sort by weekend desc, then departure time
+    // Sort by week desc, then departure time
     schedules.sort(function(a, b) {
-      var wkCmp = (b.weekend_of || '').localeCompare(a.weekend_of || '');
+      var wkCmp = (b.week_of || '').localeCompare(a.week_of || '');
       if (wkCmp !== 0) return wkCmp;
       return (a.departure_pt || '').localeCompare(b.departure_pt || '');
     });
@@ -990,13 +1011,21 @@
       var depTime = formatTime(s.departure_pt);
       var arrTime = formatTime(s.arrival_pt);
       var dur = formatDuration(s.duration_min);
-      var stops = s.stops === 0 ? 'Nonstop' : s.stops + ' stop' + (s.stops > 1 ? 's' : '');
-      var wk = s.weekend_of || '';
+      var stopsNum = s.stops || 0;
+      var wk = s.week_of || '';
+
+      // Build route visualization: SFO → DEN → ATL for connections
+      var routeViz = '';
+      if (stopsNum === 0) {
+        routeViz = '<span class="route-badge nonstop">Nonstop</span>';
+      } else {
+        routeViz = '<span class="route-badge connecting">' + stopsNum + ' stop via DEN</span>';
+      }
 
       html += '<div class="detail-flight-card">';
       html += '<div class="detail-flight-top">'
         + '<span class="detail-flight-time">' + depTime + ' &rarr; ' + arrTime + '</span>'
-        + '<span class="detail-flight-meta"><span>' + dur + '</span><span>' + stops + '</span></span>'
+        + '<span class="detail-flight-meta"><span>' + dur + ' total</span>' + routeViz + '</span>'
         + '</div>';
 
       if (s._origin) {
