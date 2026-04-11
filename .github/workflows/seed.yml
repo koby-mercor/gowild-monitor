@@ -1,14 +1,14 @@
-name: GoWild Seed
+name: GoWild Seed Weekly
 
-# Seed all Frontier destinations (SFO + SJC), both directions, Fri-Mon.
-# Runs Monday morning PT to discover flights for the upcoming weekend.
+# Seed all Frontier destinations (SFO + SJC), both directions, Mon-Sun.
+# Runs Monday morning PT to discover flights for the upcoming week.
 on:
   schedule:
     - cron: '7 17 * * 1'  # Monday 5:07pm UTC = 10:07am PT
   workflow_dispatch:
     inputs:
-      friday_date:
-        description: 'Friday date (YYYY-MM-DD)'
+      start_date:
+        description: 'Monday date (YYYY-MM-DD)'
         required: false
 
 jobs:
@@ -34,8 +34,8 @@ jobs:
 
       - name: Seed flight schedules
         run: |
-          if [ -n "${{ github.event.inputs.friday_date }}" ]; then
-            python monitor.py seed "${{ github.event.inputs.friday_date }}" --max-stops 1
+          if [ -n "${{ github.event.inputs.start_date }}" ]; then
+            python monitor.py seed "${{ github.event.inputs.start_date }}" --max-stops 1
           else
             python monitor.py seed --max-stops 1
           fi
@@ -49,7 +49,7 @@ jobs:
             echo "No DB changes to commit."
             exit 0
           fi
-          git commit -m "chore: seed weekend flight schedules [skip ci]"
+          git commit -m "chore: seed weekly flight schedules [skip ci]"
           for i in 1 2 3; do
             git push && break
             echo "Push conflict (likely concurrent dispatch), resetting to remote..."
@@ -57,5 +57,5 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
             git add gowild_monitor.db
-            git commit -m "chore: seed weekend flight schedules [skip ci]" || true
+            git commit -m "chore: seed weekly flight schedules [skip ci]" || true
           done
