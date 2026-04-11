@@ -1,4 +1,4 @@
-"""Seed flight schedules by searching Google Flights for upcoming weekends."""
+"""Seed flight schedules by searching Google Flights for upcoming weeks."""
 
 import sys
 import time
@@ -17,16 +17,16 @@ def _is_nonstop_route(origin: str, dest: str) -> bool:
     return dest in FRONTIER_NONSTOP.get(origin, [])
 
 
-def seed_weekend(friday_date: str, max_stops: int = DEFAULT_MAX_STOPS) -> dict:
-    """Seed flight schedules for a weekend: all destinations, both directions, Fri-Mon.
+def seed_week(week_start: str, max_stops: int = DEFAULT_MAX_STOPS) -> dict:
+    """Seed flight schedules for a full week: all destinations, both directions, Mon-Sun.
 
-    friday_date: 'YYYY-MM-DD' format, must be a Friday.
+    week_start: 'YYYY-MM-DD' format, must be a Monday.
     Returns: {routes_checked, flights_found, flights_inserted, errors}
     """
     if max_stops is None:
         max_stops = DEFAULT_MAX_STOPS
 
-    fri_dt = datetime.strptime(friday_date, "%Y-%m-%d")
+    fri_dt = datetime.strptime(week_start, "%Y-%m-%d")
     dates = [
         (fri_dt + timedelta(days=i)).strftime("%Y-%m-%d")
         for i in range(7)  # Friday through Thursday (full week)
@@ -82,7 +82,7 @@ def seed_weekend(friday_date: str, max_stops: int = DEFAULT_MAX_STOPS) -> dict:
 
                     sid = insert_flight_schedule(
                         conn, route_id, dep_iso, arr_iso, dur_min,
-                        f.stops, direction, friday_date,
+                        f.stops, direction, week_start,
                         f.departure, f.arrival,
                     )
                     if sid:
@@ -94,24 +94,24 @@ def seed_weekend(friday_date: str, max_stops: int = DEFAULT_MAX_STOPS) -> dict:
     return stats
 
 
-def seed_next_n_weekends(n: int = 4, max_stops: int = DEFAULT_MAX_STOPS) -> dict:
-    """Seed schedules for the next N weekends."""
+def seed_next_n_weeks(n: int = 4, max_stops: int = DEFAULT_MAX_STOPS) -> dict:
+    """Seed schedules for the next N weeks."""
     if max_stops is None:
         max_stops = DEFAULT_MAX_STOPS
 
     today = datetime.now()
-    days_to_friday = (4 - today.weekday()) % 7
-    if days_to_friday == 0 and today.hour >= 18:
-        days_to_friday = 7
-    next_friday = today + timedelta(days=days_to_friday)
+    days_to_monday = (0 - today.weekday()) % 7
+    if days_to_monday == 0 and today.hour >= 18:
+        days_to_monday = 7
+    next_monday = today + timedelta(days=days_to_monday)
 
-    total_stats = {"weekends_seeded": 0, "total_inserted": 0}
+    total_stats = {"weeks_seeded": 0, "total_inserted": 0}
     for i in range(n):
-        friday = next_friday + timedelta(weeks=i)
-        friday_str = friday.strftime("%Y-%m-%d")
-        print(f"\nSeeding weekend of {friday_str}...")
-        stats = seed_weekend(friday_str, max_stops=max_stops)
-        total_stats["weekends_seeded"] += 1
+        monday = next_monday + timedelta(weeks=i)
+        monday_str = monday.strftime("%Y-%m-%d")
+        print(f"\nSeeding week of {monday_str}...")
+        stats = seed_week(monday_str, max_stops=max_stops)
+        total_stats["weeks_seeded"] += 1
         total_stats["total_inserted"] += stats["flights_inserted"]
 
     return total_stats
