@@ -152,18 +152,22 @@ def insert_availability_check(
 
 
 def get_unchecked_flights_past_t24h(
-    conn, now_iso: str, max_staleness_hours: float = 6.0
-) -> List[sqlite3.Row]:
-    """Get flights where T-24h has passed, not yet checked, not too stale.
+    conn, now_iso: str, max_staleness_hours: float = 6.0,
+    international_dests: frozenset = frozenset(),
+    domestic_booking_hours: float = 24.0,
+    international_booking_hours: float = 240.0,
+) -> list:
+    """Get flights where the booking window has opened, not yet checked, not too stale.
 
-    Returns flights ordered by freshness: those closest to the T-24h mark
-    (i.e., highest hours_until_dep, closest to 24.0) come first.
+    Domestic flights: booking opens 24h before departure.
+    International flights (CUN, SJD, etc.): booking opens 10 days before.
 
-    A flight departing in 23.5h means T-24h passed 0.5h ago — very fresh.
-    A flight departing in 18h means T-24h passed 6h ago — stale.
+    Returns flights ordered by freshness (closest to their booking window first).
     """
-    min_hours = 24.0 - max_staleness_hours
-    return conn.execute(
+    # Use the widest window for the SQL query, then filter in Python
+    max_window = max(domestic_booking_hours, international_booking_hours) if international_dests else domestic_booking_hours
+
+    rows = conn.execute(
         """
         SELECT
             fs.schedule_id, fs.departure_pt, fs.arrival_pt, fs.direction,
@@ -178,12 +182,25 @@ def get_unchecked_flights_past_t24h(
             AND ac.search_success = 1
         WHERE r.active = 1
           AND ac.check_id IS NULL
-          AND (julianday(fs.departure_pt) - julianday(:now)) * 24.0 > :min_hours
-          AND (julianday(fs.departure_pt) - julianday(:now)) * 24.0 < 24.0
+          AND (julianday(fs.departure_pt) - julianday(:now)) * 24.0 > 0
+          AND (julianday(fs.departure_pt) - julianday(:now)) * 24.0 < :max_window
         ORDER BY (julianday(fs.departure_pt) - julianday(:now)) * 24.0 DESC
         """,
-        {"now": now_iso, "min_hours": min_hours},
+        {"now": now_iso, "max_window": max_window},
     ).fetchall()
+
+    # Filter each row by its appropriate booking window
+    results = []
+    for row in rows:
+        is_intl = row["destination"] in international_dests or row["origin"] in international_dests
+        booking_hours = international_booking_hours if is_intl else domestic_booking_hours
+        min_hours = booking_hours - max_staleness_hours
+        hours = row["hours_until_dep"]
+
+        if min_hours < hours < booking_hours:
+            results.append(row)
+
+    return results
 
 
 def log_entry(conn, run_id: str, level: str, message: str):

@@ -20,6 +20,7 @@ import pytz
 from config import (
     PACIFIC_TZ, MAX_STALENESS_HOURS,
     RATE_LIMIT_SECONDS, LOCK_FILE, DEFAULT_MAX_STOPS,
+    INTERNATIONAL_DESTS, DOMESTIC_BOOKING_HOURS, INTERNATIONAL_BOOKING_HOURS,
 )
 from db import (
     db_session, get_unchecked_flights_past_t24h,
@@ -73,7 +74,10 @@ def dispatch():
             log_entry(conn, run_id, "INFO", f"Dispatch started at {now_iso}")
 
             flights = get_unchecked_flights_past_t24h(
-                conn, now_iso, MAX_STALENESS_HOURS
+                conn, now_iso, MAX_STALENESS_HOURS,
+                international_dests=INTERNATIONAL_DESTS,
+                domestic_booking_hours=DOMESTIC_BOOKING_HOURS,
+                international_booking_hours=INTERNATIONAL_BOOKING_HOURS,
             )
 
             if not flights:
@@ -134,8 +138,7 @@ def dispatch():
                                       if result["matched_flight"] else None),
                     )
 
-                    status = "FOUND" if result["flight_found"] else "NOT FOUND"
-                    price_info = f" @ {result['price']}" if result["price"] else ""
+                    status = "AVAILABLE" if result["flight_found"] else "FULL"
                     dep_time = flight["departure_pt"][11:16]
                     print(f"    {dep_time} -> {status}{price_info}")
 

@@ -1,0 +1,1046 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GoWild Flight Availability Dashboard</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Dashboard Styles -->
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<!-- ================================================================
+     Top Navigation Bar
+     ================================================================ -->
+<nav class="nav-bar">
+  <div class="nav-left">
+    <div class="nav-brand">Go<span>Wild</span></div>
+    <div class="nav-stats font-mono" id="nav-stats">Loading...</div>
+  </div>
+  <div class="nav-right"></div>
+</nav>
+
+<!-- ================================================================
+     Main Content: Map + Sidebar
+     ================================================================ -->
+<div class="main-content">
+
+  <!-- Loading Overlay -->
+  <div class="loading-overlay" id="loading-overlay">
+    <div class="loading-spinner"></div>
+    <div class="loading-text">Initializing flight data...</div>
+  </div>
+
+  <!-- Map Area (left, fills remaining space) -->
+  <div class="map-area">
+    <div id="map"></div>
+
+    <!-- Legend (bottom-left) -->
+    <div class="map-legend" id="map-legend" style="display:none">
+      <h4>Availability</h4>
+      <div class="legend-item">
+        <div class="legend-dot" style="background:#10b981"></div>
+        <span>75%+ available</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot" style="background:#f59e0b"></div>
+        <span>50 &ndash; 74%</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot" style="background:#ef4444"></div>
+        <span>&lt; 50%</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot" style="background:#374151"></div>
+        <span>No data</span>
+      </div>
+      <div class="legend-item" style="margin-top:4px">
+        <div class="legend-donut" style="background:var(--accent-blue);border-color:var(--accent-purple)"></div>
+        <span>Inner=Out / Ring=Ret</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot" style="background:var(--accent-blue);border:2px solid rgba(255,255,255,0.7)"></div>
+        <span>Origin airport</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sidebar (right, always visible) -->
+  <div class="sidebar">
+
+    <!-- List State (default) -->
+    <div class="sidebar-list" id="sidebar-list">
+      <div class="sidebar-search">
+        <div class="search-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="search-input" placeholder="Search code or city...">
+        </div>
+      </div>
+
+      <div class="sidebar-filters" id="filter-pills">
+        <button class="filter-pill active" data-filter="all">All</button>
+        <button class="filter-pill" data-filter="available">Available</button>
+        <button class="filter-pill" data-filter="nodata">No Data</button>
+        <button class="filter-pill" data-filter="nonstop">Nonstop</button>
+        <button class="filter-pill" data-filter="SFO">SFO</button>
+        <button class="filter-pill" data-filter="SJC">SJC</button>
+      </div>
+
+      <div class="sidebar-count" id="sidebar-count"></div>
+
+      <div class="dest-list" id="dest-list"></div>
+    </div>
+
+    <!-- Detail State (shown when a destination is clicked) -->
+    <div class="sidebar-detail" id="sidebar-detail">
+      <div class="detail-header">
+        <button class="detail-back" id="detail-back">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+          Back to list
+        </button>
+        <div class="detail-route-name" id="detail-route-name"></div>
+        <div class="detail-route-city" id="detail-route-city"></div>
+        <div class="detail-route-meta" id="detail-route-meta"></div>
+      </div>
+
+      <div class="detail-gauges" id="detail-gauges">
+        <!-- Outbound gauge -->
+        <div class="mini-gauge">
+          <div class="mini-gauge-ring">
+            <svg viewBox="0 0 72 72">
+              <circle class="gauge-bg" cx="36" cy="36" r="28"/>
+              <circle class="gauge-fill" id="gauge-out-fill" cx="36" cy="36" r="28"
+                      stroke-dasharray="175.93" stroke-dashoffset="175.93"/>
+            </svg>
+            <div class="mini-gauge-text">
+              <div class="mini-gauge-pct font-mono" id="gauge-out-pct">--</div>
+              <div class="mini-gauge-label" style="color:var(--accent-blue)">&rarr; OUT</div>
+            </div>
+          </div>
+        </div>
+        <!-- Return gauge -->
+        <div class="mini-gauge">
+          <div class="mini-gauge-ring">
+            <svg viewBox="0 0 72 72">
+              <circle class="gauge-bg" cx="36" cy="36" r="28"/>
+              <circle class="gauge-fill" id="gauge-ret-fill" cx="36" cy="36" r="28"
+                      stroke-dasharray="175.93" stroke-dashoffset="175.93"/>
+            </svg>
+            <div class="mini-gauge-text">
+              <div class="mini-gauge-pct font-mono" id="gauge-ret-pct">--</div>
+              <div class="mini-gauge-label" style="color:var(--accent-purple)">&larr; RET</div>
+            </div>
+          </div>
+        </div>
+        <!-- Combined gauge -->
+        <div class="mini-gauge">
+          <div class="mini-gauge-ring">
+            <svg viewBox="0 0 72 72">
+              <circle class="gauge-bg" cx="36" cy="36" r="28"/>
+              <circle class="gauge-fill" id="gauge-comb-fill" cx="36" cy="36" r="28"
+                      stroke-dasharray="175.93" stroke-dashoffset="175.93"/>
+            </svg>
+            <div class="mini-gauge-text">
+              <div class="mini-gauge-pct font-mono" id="gauge-comb-pct">--</div>
+              <div class="mini-gauge-sublabel">COMB</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="detail-stats" id="detail-stats">
+        <div class="detail-stat-card">
+          <div class="label" style="color:var(--accent-blue)">&rarr; Out %</div>
+          <div class="value font-mono" id="ds-out-pct">--</div>
+        </div>
+        <div class="detail-stat-card">
+          <div class="label" style="color:var(--accent-purple)">&larr; Ret %</div>
+          <div class="value font-mono" id="ds-ret-pct">--</div>
+        </div>
+        <div class="detail-stat-card">
+          <div class="label">Weekends</div>
+          <div class="value font-mono" id="ds-weekends">--</div>
+        </div>
+        <div class="detail-stat-card">
+          <div class="label">Confidence</div>
+          <div class="value" id="ds-confidence">--</div>
+        </div>
+      </div>
+
+      <div class="detail-body" id="detail-body">
+        <div class="detail-loading">Select a destination to view details</div>
+      </div>
+    </div>
+
+  </div><!-- /sidebar -->
+
+</div><!-- /main-content -->
+
+<!-- ================================================================
+     JavaScript Application
+     ================================================================ -->
+<script>
+(function() {
+  'use strict';
+
+  // -- Application State -------------------------------------------
+  var state = {
+    airports: {},
+    routes: [],
+    destinations: [],
+    stats: {},
+    currentFilter: 'all',
+    searchQuery: '',
+    sortColumn: 'combined_pct',
+    sortAsc: false,
+    map: null,
+    mapLayers: {
+      routeLines: [],
+      outerRings: [],
+      innerDots: [],
+      originMarkers: []
+    },
+    destLookup: {},
+    markerLookup: {}
+  };
+
+  var ORIGINS = ['SFO', 'SJC'];
+
+  // -- Color Helpers -----------------------------------------------
+
+  function tierColor(pct) {
+    if (pct === null || pct === undefined) return '#374151';
+    if (pct >= 75) return '#10b981';
+    if (pct >= 50) return '#f59e0b';
+    return '#ef4444';
+  }
+
+  function tierClass(pct) {
+    if (pct === null || pct === undefined) return 'none';
+    if (pct >= 75) return 'green';
+    if (pct >= 50) return 'amber';
+    return 'red';
+  }
+
+  /** Returns display string; distinguishes null (no data) from 0 (checked, zero). */
+  function pctDisplay(obj) {
+    // obj is the outbound/return sub-object or null
+    if (obj === null || obj === undefined) return null; // signals "No Data"
+    if (obj.pct === null || obj.pct === undefined) return null;
+    return obj.pct.toFixed(1) + '%';
+  }
+
+  /** Raw numeric pct from sub-object, or null. */
+  function pctValue(obj) {
+    if (obj === null || obj === undefined) return null;
+    if (obj.pct === null || obj.pct === undefined) return null;
+    return obj.pct;
+  }
+
+  function cityFor(code) {
+    var a = state.airports[code];
+    return a ? a.city : '';
+  }
+
+  function formatDuration(min) {
+    if (!min) return '--';
+    var h = Math.floor(min / 60);
+    var m = min % 60;
+    return h + 'h ' + (m < 10 ? '0' : '') + m + 'm';
+  }
+
+  function formatTime(isoStr) {
+    if (!isoStr) return '--';
+    try {
+      var d = new Date(isoStr);
+      return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+    } catch(e) {
+      return isoStr.slice(11, 16);
+    }
+  }
+
+  // -- API ---------------------------------------------------------
+
+  function fetchJSON(url) {
+    return fetch(url).then(function(res) {
+      if (!res.ok) throw new Error('HTTP ' + res.status + ' for ' + url);
+      return res.json();
+    });
+  }
+
+  // -- Initialization ----------------------------------------------
+
+  function init() {
+    Promise.all([
+      fetchJSON('/api/airports'),
+      fetchJSON('/api/routes'),
+      fetchJSON('/api/destinations'),
+      fetchJSON('/api/stats')
+    ]).then(function(results) {
+      state.airports = results[0];
+      state.routes = results[1];
+      state.destinations = results[2];
+      state.stats = results[3];
+
+      // Build destination lookup
+      for (var i = 0; i < state.destinations.length; i++) {
+        var d = state.destinations[i];
+        state.destLookup[d.destination] = d;
+      }
+
+      renderNavStats(state.stats);
+      renderMap(state.routes, state.airports);
+      renderSidebarList();
+
+      document.getElementById('loading-overlay').classList.add('hidden');
+      document.getElementById('map-legend').style.display = '';
+
+    }).catch(function(err) {
+      console.error('Init failed:', err);
+      document.querySelector('.loading-text').textContent = 'Error loading data: ' + err.message;
+    });
+  }
+
+  // -- Nav Stats ---------------------------------------------------
+
+  function renderNavStats(s) {
+    var el = document.getElementById('nav-stats');
+    var dest = s.destinations || 0;
+    var flights = s.total_flights || 0;
+    var checks = s.total_checks || 0;
+    var days = s.days_of_data || 0;
+    el.innerHTML = dest + ' dest'
+      + ' <span class="sep">&middot;</span> '
+      + flights + ' flights'
+      + ' <span class="sep">&middot;</span> '
+      + checks + ' checks'
+      + ' <span class="sep">&middot;</span> '
+      + days + ' days of data';
+  }
+
+  // ================================================================
+  //  MAP RENDERING
+  // ================================================================
+
+  function renderMap(routes, airports) {
+    var map = L.map('map', {
+      zoomControl: false,
+      attributionControl: true
+    }).setView([39, -96], 4);
+
+    // Fit bounds to show all destinations with padding
+    var allCoords = [];
+    for (var code in airports) {
+      allCoords.push([airports[code].lat, airports[code].lng]);
+    }
+    if (allCoords.length > 0) {
+      map.fitBounds(allCoords, { padding: [30, 30], maxZoom: 5 });
+    }
+
+    state.map = map;
+
+    L.control.zoom({ position: 'bottomleft' }).addTo(map);
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; <a href="https://carto.com/">CARTO</a> &copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>',
+      subdomains: 'abcd',
+      maxZoom: 19
+    }).addTo(map);
+
+    // Draw route lines (NOT clickable, NOT interactive)
+    for (var i = 0; i < routes.length; i++) {
+      var route = routes[i];
+      var origCoord = airports[route.origin];
+      var destCoord = airports[route.destination];
+      if (!origCoord || !destCoord) continue;
+
+      var from = [origCoord.lat, origCoord.lng];
+      var to = [destCoord.lat, destCoord.lng];
+
+      var destData = state.destLookup[route.destination];
+      var combinedPct = destData ? destData.combined_pct : null;
+      var color = tierColor(combinedPct);
+
+      // Main route line — very subtle until hovered
+      var routeLine = L.polyline([from, to], {
+        color: color,
+        weight: 1,
+        opacity: 0.12,
+        interactive: true
+      }).addTo(map);
+      routeLine._destCode = route.destination;
+
+      // Hover on route line: highlight + show destination tooltip
+      (function(line, destCode) {
+        line.on('mouseover', function() {
+          // Brighten all lines for this destination
+          state.mapLayers.routeLines.forEach(function(l) {
+            if (l._destCode === destCode) l.setStyle({ opacity: 0.6, weight: 2.5 });
+          });
+          // Show the destination marker tooltip
+          var marker = state.markerLookup[destCode];
+          if (marker && marker.inner) marker.inner.openTooltip();
+        });
+        line.on('mouseout', function() {
+          state.mapLayers.routeLines.forEach(function(l) {
+            if (l._destCode === destCode) l.setStyle({ opacity: 0.12, weight: 1 });
+          });
+          var marker = state.markerLookup[destCode];
+          if (marker && marker.inner) marker.inner.closeTooltip();
+        });
+        line.on('click', function() {
+          var marker = state.markerLookup[destCode];
+          var dd = state.destLookup[destCode];
+          var origins = dd ? dd.origins : ['SFO'];
+          showDetail(origins[0], destCode);
+          if (marker && marker.coord) {
+            var popupHtml = buildPopupHtml(destCode, dd);
+            L.popup({ maxWidth: 200, closeButton: true })
+              .setLatLng([marker.coord.lat, marker.coord.lng])
+              .setContent(popupHtml)
+              .openOn(state.map);
+          }
+        });
+      })(routeLine, route.destination);
+
+      state.mapLayers.routeLines.push(routeLine);
+    }
+
+    // Draw destination markers (deduplicated) as TWO concentric circles
+    var drawnDests = {};
+    for (var j = 0; j < routes.length; j++) {
+      var dest = routes[j].destination;
+      if (drawnDests[dest]) continue;
+      drawnDests[dest] = true;
+
+      var coord = airports[dest];
+      if (!coord) continue;
+
+      var dd = state.destLookup[dest];
+      var outObj = dd ? dd.outbound : null;
+      var retObj = dd ? dd.return : null;
+      var outPct = pctValue(outObj);
+      var retPct = pctValue(retObj);
+
+      var outColor = tierColor(outPct);
+      var retColor = tierColor(retPct);
+
+      // Outer ring — represents return availability
+      var outerRing = L.circleMarker([coord.lat, coord.lng], {
+        radius: 7,
+        fillColor: retColor,
+        fillOpacity: 0.55,
+        weight: 0,
+        interactive: false
+      }).addTo(map);
+      state.mapLayers.outerRings.push(outerRing);
+
+      // Inner dot — represents outbound availability
+      var innerDot = L.circleMarker([coord.lat, coord.lng], {
+        radius: 4,
+        fillColor: outColor,
+        fillOpacity: 0.95,
+        weight: 1.5,
+        color: '#fff',
+        opacity: 0.5
+      }).addTo(map);
+
+      // Tooltip on hover (destination dot) + highlight connected routes
+      var tooltipHtml = buildTooltipHtml(dest, dd);
+      innerDot.bindTooltip(tooltipHtml, {
+        direction: 'top',
+        offset: [0, -10],
+        className: 'leaflet-tooltip'
+      });
+
+      (function(destCode) {
+        innerDot.on('mouseover', function() {
+          state.mapLayers.routeLines.forEach(function(line) {
+            if (line._destCode === destCode) {
+              line.setStyle({ opacity: 0.6, weight: 2.5 });
+            }
+          });
+        });
+        innerDot.on('mouseout', function() {
+          state.mapLayers.routeLines.forEach(function(line) {
+            if (line._destCode === destCode) {
+              line.setStyle({ opacity: 0.12, weight: 1 });
+            }
+          });
+        });
+      })(dest);
+
+      // Click -> open sidebar detail + brief popup
+      (function(destCode, destD, markerRef, coordRef) {
+        markerRef.on('click', function() {
+          var origins = destD ? destD.origins : ['SFO'];
+          showDetail(origins[0], destCode);
+
+          // Brief popup on map
+          var popupHtml = buildPopupHtml(destCode, destD);
+          L.popup({ maxWidth: 200, closeButton: true, className: 'leaflet-popup' })
+            .setLatLng([coordRef.lat, coordRef.lng])
+            .setContent(popupHtml)
+            .openOn(state.map);
+        });
+      })(dest, dd, innerDot, coord);
+
+      state.mapLayers.innerDots.push(innerDot);
+      state.markerLookup[dest] = { outer: outerRing, inner: innerDot, coord: coord };
+    }
+
+    // Draw origin markers with pulsing animation
+    for (var k = 0; k < ORIGINS.length; k++) {
+      var code = ORIGINS[k];
+      var oCoord = airports[code];
+      if (!oCoord) continue;
+
+      var pulseIcon = L.divIcon({
+        className: 'origin-marker',
+        html: '<div class="origin-marker-pulse"></div>'
+            + '<div class="origin-marker-dot"></div>'
+            + '<div class="origin-marker-label">' + code + '</div>',
+        iconSize: [32, 32],
+        iconAnchor: [16, 16]
+      });
+
+      var marker = L.marker([oCoord.lat, oCoord.lng], { icon: pulseIcon, zIndexOffset: 1000 }).addTo(map);
+      state.mapLayers.originMarkers.push(marker);
+    }
+  }
+
+  function buildTooltipHtml(dest, destData) {
+    var city = cityFor(dest);
+    var html = '<div>';
+    html += '<span class="tooltip-code">' + dest + '</span>';
+    if (city) html += ' <span class="tooltip-city">' + city + '</span>';
+
+    // Nonstop or connecting + international badge
+    if (destData) {
+      var tags = [];
+      tags.push('<span style="color:' + (destData.is_nonstop ? 'var(--accent-blue)' : 'var(--text-dim)') + '">'
+        + (destData.is_nonstop ? 'Nonstop' : '1+ stops') + '</span>');
+      if (destData.is_international) {
+        tags.push('<span style="color:var(--accent-amber)">Intl · 10-day window</span>');
+      }
+      html += '<br><span style="font-size:10px">' + tags.join(' · ') + '</span>';
+    }
+
+    html += '<hr class="tooltip-divider">';
+
+    // Outbound
+    html += '<div class="tooltip-row">';
+    html += '<span class="tooltip-label" style="color:var(--accent-blue)">&rarr; OUT</span>';
+    if (destData && destData.outbound !== null && destData.outbound !== undefined) {
+      var op = destData.outbound.pct;
+      html += '<span class="tooltip-value" style="color:' + tierColor(op) + '">'
+        + (op !== null && op !== undefined ? op.toFixed(1) + '%' : 'No data') + '</span>';
+    } else {
+      html += '<span class="tooltip-value" style="color:var(--text-dim)">No data</span>';
+    }
+    html += '</div>';
+
+    // Return — only show if destination has return flights
+    if (destData && destData.has_return_flights !== false) {
+      html += '<div class="tooltip-row">';
+      html += '<span class="tooltip-label" style="color:var(--accent-purple)">&larr; RET</span>';
+      if (destData && destData.return !== null && destData.return !== undefined) {
+        var rp = destData.return.pct;
+        html += '<span class="tooltip-value" style="color:' + tierColor(rp) + '">'
+          + (rp !== null && rp !== undefined ? rp.toFixed(1) + '%' : 'No data') + '</span>';
+      } else {
+        html += '<span class="tooltip-value" style="color:var(--text-dim)">No data</span>';
+      }
+      html += '</div>';
+    } else {
+      html += '<div class="tooltip-row">';
+      html += '<span class="tooltip-value" style="color:var(--text-dim);font-size:10px">Outbound only — no return flights</span>';
+      html += '</div>';
+    }
+
+    html += '</div>';
+    return html;
+  }
+
+  function buildPopupHtml(dest, destData) {
+    var city = cityFor(dest);
+    var html = '<div class="popup-content">';
+    html += '<h3>' + dest + '</h3>';
+    if (city) html += '<div class="popup-city">' + city + '</div>';
+
+    if (destData) {
+      var outStr = pctDisplay(destData.outbound);
+      var retStr = pctDisplay(destData.return);
+      var outP = pctValue(destData.outbound);
+      var retP = pctValue(destData.return);
+
+      html += '<div class="popup-stat"><span class="popup-stat-label" style="color:var(--accent-blue)">&rarr; OUT</span>'
+        + '<span class="popup-stat-value" style="color:' + tierColor(outP) + '">'
+        + (outStr !== null ? outStr : 'No data') + '</span></div>';
+      html += '<div class="popup-stat"><span class="popup-stat-label" style="color:var(--accent-purple)">&larr; RET</span>'
+        + '<span class="popup-stat-value" style="color:' + tierColor(retP) + '">'
+        + (retStr !== null ? retStr : 'No data') + '</span></div>';
+    }
+
+    html += '</div>';
+    return html;
+  }
+
+  // ================================================================
+  //  SIDEBAR LIST
+  // ================================================================
+
+  function renderSidebarList() {
+    var destinations = state.destinations;
+    var filtered = filterDestinations(destinations);
+    filtered = sortDestinations(filtered);
+
+    var listEl = document.getElementById('dest-list');
+    listEl.innerHTML = '';
+
+    var countEl = document.getElementById('sidebar-count');
+    countEl.textContent = filtered.length + ' of ' + destinations.length + ' destinations';
+
+    for (var i = 0; i < filtered.length; i++) {
+      var d = filtered[i];
+      var outObj = d.outbound;
+      var retObj = d.return;
+      var outP = pctValue(outObj);
+      var retP = pctValue(retObj);
+      var combined = d.combined_pct;
+      var city = cityFor(d.destination);
+
+      // Determine tier for left border
+      var tier;
+      if (combined !== null && combined !== undefined) {
+        tier = tierClass(combined);
+      } else if (outObj === null && retObj === null) {
+        tier = 'gray';
+      } else {
+        tier = 'none';
+      }
+
+      var card = document.createElement('div');
+      card.className = 'dest-card tier-' + tier;
+      card.dataset.dest = d.destination;
+
+      var headerHtml = '<div class="dest-card-header">'
+        + '<div class="dest-card-left">'
+        + '<span class="dest-card-code">' + d.destination + '</span>'
+        + '<span class="dest-card-city">' + city + '</span>'
+        + '</div>'
+        + '<div class="dest-card-badge">';
+
+      if (d.is_nonstop === true) {
+        headerHtml += '<span class="badge-stops badge-nonstop">Nonstop</span>';
+      } else if (d.is_nonstop === false) {
+        headerHtml += '<span class="badge-stops badge-connecting">1 stop</span>';
+      }
+
+      if (d.is_international) {
+        headerHtml += '<span class="badge-stops" style="background:rgba(245,158,11,0.15);color:var(--accent-amber)">10-day</span>';
+      }
+
+      headerHtml += '<span class="confidence-badge confidence-' + d.confidence + '">' + d.confidence + '</span>';
+      headerHtml += '</div></div>';
+
+      // Stats row: outbound and return with directional labels
+      var statsHtml = '<div class="dest-card-stats">';
+
+      // Outbound
+      statsHtml += '<div class="dest-stat">';
+      statsHtml += '<span class="dest-stat-label out-label">&rarr; OUT</span>';
+      var outDisplay = pctDisplay(outObj);
+      if (outDisplay !== null) {
+        statsHtml += '<span class="dest-stat-value pct-' + tierClass(outP) + '">' + outDisplay + '</span>';
+      } else {
+        statsHtml += '<span class="dest-stat-value no-data">No Data</span>';
+      }
+      statsHtml += '</div>';
+
+      // Return — only show if destination has return flights
+      if (d.has_return_flights !== false) {
+        statsHtml += '<div class="dest-stat">';
+        statsHtml += '<span class="dest-stat-label ret-label">&larr; RET</span>';
+        var retDisplay = pctDisplay(retObj);
+        if (retDisplay !== null) {
+          statsHtml += '<span class="dest-stat-value pct-' + tierClass(retP) + '">' + retDisplay + '</span>';
+        } else {
+          statsHtml += '<span class="dest-stat-value no-data">No Data</span>';
+        }
+        statsHtml += '</div>';
+      } else {
+        statsHtml += '<div class="dest-stat">';
+        statsHtml += '<span class="dest-stat-value no-data" style="font-size:11px">Outbound only</span>';
+        statsHtml += '</div>';
+      }
+
+      statsHtml += '</div>';
+
+      // Combined bar
+      var combinedHtml = '<div class="dest-card-combined">';
+      combinedHtml += '<div class="combined-bar-track"><div class="combined-bar-fill" style="width:'
+        + (combined !== null && combined !== undefined ? combined : 0)
+        + '%;background:' + tierColor(combined) + '"></div></div>';
+
+      if (combined !== null && combined !== undefined) {
+        combinedHtml += '<span class="combined-pct pct-' + tierClass(combined) + '">' + combined.toFixed(1) + '%</span>';
+      } else if (outObj === null && retObj === null) {
+        combinedHtml += '<span class="combined-pct" style="color:var(--text-dim)">No Data</span>';
+      } else {
+        combinedHtml += '<span class="combined-pct" style="color:var(--text-dim)">--</span>';
+      }
+      combinedHtml += '</div>';
+
+      card.innerHTML = headerHtml + statsHtml + combinedHtml;
+
+      // Click handler
+      (function(dest, destData) {
+        card.addEventListener('click', function() {
+          var origins = destData.origins || ['SFO'];
+          showDetail(origins[0], dest);
+        });
+      })(d.destination, d);
+
+      listEl.appendChild(card);
+    }
+  }
+
+  function filterDestinations(destinations) {
+    var result = destinations;
+    var f = state.currentFilter;
+
+    if (f === 'available') {
+      result = result.filter(function(d) {
+        return d.combined_pct !== null && d.combined_pct !== undefined;
+      });
+    } else if (f === 'nodata') {
+      result = result.filter(function(d) {
+        return d.outbound === null && d.return === null;
+      });
+    } else if (f === 'nonstop') {
+      result = result.filter(function(d) {
+        return d.is_nonstop === true;
+      });
+    } else if (f === 'SFO') {
+      result = result.filter(function(d) { return d.origins.indexOf('SFO') !== -1; });
+    } else if (f === 'SJC') {
+      result = result.filter(function(d) { return d.origins.indexOf('SJC') !== -1; });
+    }
+
+    var q = state.searchQuery.trim().toUpperCase();
+    if (q) {
+      result = result.filter(function(d) {
+        var city = cityFor(d.destination).toUpperCase();
+        return d.destination.indexOf(q) !== -1 || city.indexOf(q) !== -1;
+      });
+    }
+
+    return result;
+  }
+
+  function sortDestinations(destinations) {
+    var col = state.sortColumn;
+    var asc = state.sortAsc;
+    var mult = asc ? 1 : -1;
+
+    return destinations.slice().sort(function(a, b) {
+      var va, vb;
+
+      if (col === 'destination') {
+        return mult * a.destination.localeCompare(b.destination);
+      }
+      if (col === 'combined_pct') {
+        va = a.combined_pct !== null && a.combined_pct !== undefined ? a.combined_pct : -1;
+        vb = b.combined_pct !== null && b.combined_pct !== undefined ? b.combined_pct : -1;
+      } else if (col === 'out_pct') {
+        va = a.outbound && a.outbound.pct !== null ? a.outbound.pct : -1;
+        vb = b.outbound && b.outbound.pct !== null ? b.outbound.pct : -1;
+      } else if (col === 'ret_pct') {
+        va = a.return && a.return.pct !== null ? a.return.pct : -1;
+        vb = b.return && b.return.pct !== null ? b.return.pct : -1;
+      } else {
+        return 0;
+      }
+
+      if (va < vb) return -1 * mult;
+      if (va > vb) return 1 * mult;
+      return 0;
+    });
+  }
+
+  // -- Sidebar Filtering -------------------------------------------
+
+  document.getElementById('search-input').addEventListener('input', function(e) {
+    state.searchQuery = e.target.value;
+    renderSidebarList();
+  });
+
+  document.getElementById('filter-pills').addEventListener('click', function(e) {
+    var btn = e.target.closest('.filter-pill');
+    if (!btn) return;
+    var filter = btn.dataset.filter;
+    state.currentFilter = filter;
+
+    var pills = document.querySelectorAll('.filter-pill');
+    for (var i = 0; i < pills.length; i++) pills[i].classList.remove('active');
+    btn.classList.add('active');
+
+    renderSidebarList();
+  });
+
+  // ================================================================
+  //  DETAIL VIEW (in sidebar)
+  // ================================================================
+
+  function showDetail(origin, dest) {
+    var listEl = document.getElementById('sidebar-list');
+    var detailEl = document.getElementById('sidebar-detail');
+
+    listEl.classList.add('hidden');
+    detailEl.classList.add('active');
+
+    var city = cityFor(dest);
+    var destData = state.destLookup[dest];
+
+    // Header
+    document.getElementById('detail-route-name').innerHTML =
+      origin + ' <span class="arrow">&rarr;</span> ' + dest;
+    document.getElementById('detail-route-city').textContent = city;
+
+    // Meta info
+    var metaHtml = '';
+    if (destData) {
+      metaHtml += '<span style="color:' + (destData.is_nonstop ? 'var(--accent-blue)' : 'var(--text-dim)') + '">'
+        + (destData.is_nonstop ? 'Nonstop' : '1+ stops') + '</span>';
+      metaHtml += '<span style="color:var(--text-dim)">Origins: ' + destData.origins.join(', ') + '</span>';
+    }
+    document.getElementById('detail-route-meta').innerHTML = metaHtml;
+
+    // Gauges
+    var outObj = destData ? destData.outbound : null;
+    var retObj = destData ? destData.return : null;
+    var outP = pctValue(outObj);
+    var retP = pctValue(retObj);
+    var combined = destData ? destData.combined_pct : null;
+
+    updateMiniGauge('gauge-out-fill', 'gauge-out-pct', outP, outObj === null, '#3b82f6');
+    updateMiniGauge('gauge-ret-fill', 'gauge-ret-pct', retP, retObj === null, '#a855f7');
+    updateMiniGauge('gauge-comb-fill', 'gauge-comb-pct', combined, outObj === null && retObj === null, null);
+
+    // Stat cards
+    var dsOut = document.getElementById('ds-out-pct');
+    if (outObj !== null && outObj !== undefined) {
+      dsOut.textContent = outP !== null ? outP.toFixed(1) + '%' : '0%';
+      dsOut.style.color = tierColor(outP);
+    } else {
+      dsOut.textContent = 'No Data';
+      dsOut.style.color = 'var(--text-dim)';
+    }
+
+    var dsRet = document.getElementById('ds-ret-pct');
+    if (retObj !== null && retObj !== undefined) {
+      dsRet.textContent = retP !== null ? retP.toFixed(1) + '%' : '0%';
+      dsRet.style.color = tierColor(retP);
+    } else {
+      dsRet.textContent = 'No Data';
+      dsRet.style.color = 'var(--text-dim)';
+    }
+
+    document.getElementById('ds-weekends').textContent = destData ? (destData.weekends || '--') : '--';
+    var confEl = document.getElementById('ds-confidence');
+    if (destData && destData.confidence) {
+      confEl.innerHTML = '<span class="confidence-badge confidence-' + destData.confidence + '">' + destData.confidence + '</span>';
+    } else {
+      confEl.textContent = '--';
+    }
+
+    // Load flight details
+    var body = document.getElementById('detail-body');
+    body.innerHTML = '<div class="detail-loading">Loading flight details...</div>';
+    var origins = destData ? destData.origins : [origin];
+    loadDetailData(dest, origins, body);
+  }
+
+  function hideDetail() {
+    var listEl = document.getElementById('sidebar-list');
+    var detailEl = document.getElementById('sidebar-detail');
+
+    detailEl.classList.remove('active');
+    listEl.classList.remove('hidden');
+  }
+
+  document.getElementById('detail-back').addEventListener('click', hideDetail);
+
+  // Escape key closes detail
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') hideDetail();
+  });
+
+  function updateMiniGauge(fillId, textId, pct, isNoData, accentColor) {
+    var fill = document.getElementById(fillId);
+    var text = document.getElementById(textId);
+    var circumference = 2 * Math.PI * 28; // r=28
+
+    if (isNoData) {
+      fill.style.strokeDashoffset = circumference;
+      fill.style.stroke = '#374151';
+      text.textContent = 'N/A';
+      text.style.color = 'var(--text-dim)';
+    } else if (pct === null || pct === undefined) {
+      fill.style.strokeDashoffset = circumference;
+      fill.style.stroke = '#374151';
+      text.textContent = '--';
+      text.style.color = 'var(--text-dim)';
+    } else {
+      var offset = circumference - (pct / 100) * circumference;
+      fill.style.strokeDashoffset = offset;
+      fill.style.stroke = accentColor || tierColor(pct);
+      text.textContent = Math.round(pct) + '%';
+      text.style.color = accentColor || tierColor(pct);
+    }
+  }
+
+  function loadDetailData(dest, origins, bodyEl) {
+    var promises = [];
+    for (var i = 0; i < origins.length; i++) {
+      promises.push(
+        fetchJSON('/api/routes/' + origins[i] + '/' + dest)
+          .then(function(data) {
+            var schedules;
+            if (Array.isArray(data)) {
+              schedules = data;
+            } else if (data && data.schedules) {
+              schedules = data.schedules;
+            } else {
+              schedules = [];
+            }
+            return schedules;
+          })
+          .catch(function() { return []; })
+      );
+    }
+
+    // We need to tag each schedule with its origin
+    var originsCopy = origins.slice();
+    Promise.all(promises).then(function(results) {
+      var allSchedules = [];
+      for (var i = 0; i < results.length; i++) {
+        var schedules = results[i];
+        for (var j = 0; j < schedules.length; j++) {
+          schedules[j]._origin = originsCopy[i];
+        }
+        allSchedules = allSchedules.concat(schedules);
+      }
+
+      if (allSchedules.length === 0) {
+        bodyEl.innerHTML = '<div class="detail-no-data">No schedule data available yet.</div>';
+        return;
+      }
+
+      var outbound = allSchedules.filter(function(s) { return s.direction === 'outbound'; });
+      var returnFl = allSchedules.filter(function(s) { return s.direction === 'return'; });
+
+      var html = '';
+
+      if (outbound.length > 0) {
+        html += '<div class="detail-section">'
+          + '<div class="detail-section-title outbound-title">&rarr; Outbound Flights</div>'
+          + renderDetailFlights(outbound)
+          + '</div>';
+      }
+
+      if (returnFl.length > 0) {
+        html += '<div class="detail-section">'
+          + '<div class="detail-section-title return-title">&larr; Return Flights</div>'
+          + renderDetailFlights(returnFl)
+          + '</div>';
+      }
+
+      if (!outbound.length && !returnFl.length) {
+        html += '<div class="detail-no-data">No flights categorized by direction.</div>';
+      }
+
+      bodyEl.innerHTML = html;
+    });
+  }
+
+  function renderDetailFlights(schedules) {
+    // Sort by weekend desc, then departure time
+    schedules.sort(function(a, b) {
+      var wkCmp = (b.weekend_of || '').localeCompare(a.weekend_of || '');
+      if (wkCmp !== 0) return wkCmp;
+      return (a.departure_pt || '').localeCompare(b.departure_pt || '');
+    });
+
+    var html = '';
+
+    for (var i = 0; i < schedules.length; i++) {
+      var s = schedules[i];
+      var depTime = formatTime(s.departure_pt);
+      var arrTime = formatTime(s.arrival_pt);
+      var dur = formatDuration(s.duration_min);
+      var stops = s.stops === 0 ? 'Nonstop' : s.stops + ' stop' + (s.stops > 1 ? 's' : '');
+      var wk = s.weekend_of || '';
+
+      html += '<div class="detail-flight-card">';
+      html += '<div class="detail-flight-top">'
+        + '<span class="detail-flight-time">' + depTime + ' &rarr; ' + arrTime + '</span>'
+        + '<span class="detail-flight-meta"><span>' + dur + '</span><span>' + stops + '</span></span>'
+        + '</div>';
+
+      if (s._origin) {
+        html += '<div class="detail-flight-origin">From '
+          + s._origin + ' &middot; Weekend of ' + wk + '</div>';
+      }
+
+      if (s.checks && s.checks.length > 0) {
+        html += '<div class="detail-flight-checks">';
+        for (var c = 0; c < s.checks.length; c++) {
+          var check = s.checks[c];
+          var found = check.flight_found;
+          var statusCls = found ? 'found' : 'not-found';
+          var statusTxt = found ? 'Available' : 'Full';
+          var hours = check.hours_before_dep !== null && check.hours_before_dep !== undefined
+            ? Math.round(check.hours_before_dep) + 'h before'
+            : '';
+
+          html += '<div class="detail-check-row">'
+            + '<span class="detail-check-type">' + (check.check_type || '') + '</span>'
+            + '<span class="detail-check-status ' + statusCls + '">' + statusTxt + '</span>'
+            + (hours ? '<span class="detail-check-hours">' + hours + '</span>' : '')
+            + '</div>';
+        }
+        html += '</div>';
+      } else {
+        html += '<div style="font-size:10px;color:var(--text-dim);font-style:italic;padding-top:4px">No checks recorded</div>';
+      }
+
+      html += '</div>';
+    }
+
+    return html;
+  }
+
+  // -- Expose showDetail globally (for popup buttons if needed) ----
+  window.showDetail = showDetail;
+  window.hideDetail = hideDetail;
+
+  // -- Start -------------------------------------------------------
+  init();
+
+})();
+</script>
+
+</body>
+</html>

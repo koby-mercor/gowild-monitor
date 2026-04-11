@@ -16,6 +16,15 @@ PACIFIC_TZ = "America/Los_Angeles"
 # 6h means we check flights departing 18–24h from now.
 MAX_STALENESS_HOURS = 6.0
 
+# ── Booking windows ──────────────────────────────────────────────────────
+# GoWild domestic: booking opens 24h before departure
+# GoWild international: booking opens 10 days before departure
+DOMESTIC_BOOKING_HOURS = 24.0
+INTERNATIONAL_BOOKING_HOURS = 240.0  # 10 days
+
+# International destinations (GoWild has different booking window)
+INTERNATIONAL_DESTS = frozenset(["CUN", "SJD"])
+
 # Rate limiting for Google Flights scraper
 RATE_LIMIT_SECONDS = 1.0
 MAX_RETRIES = 2

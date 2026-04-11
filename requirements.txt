@@ -4,3 +4,4 @@ typer
 rich
 python-dateutil
 pytest
+flask
