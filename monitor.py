@@ -53,7 +53,8 @@ def seed(
     from seeder import seed_week, seed_next_n_weeks
 
     if start_date is None:
-        today = datetime.now()
+        import pytz
+        today = datetime.now(pytz.timezone("America/Los_Angeles"))
         days_to_monday = (0 - today.weekday()) % 7
         if days_to_monday == 0 and today.hour >= 18:
             days_to_monday = 7

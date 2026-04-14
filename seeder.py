@@ -99,7 +99,7 @@ def seed_next_n_weeks(n: int = 4, max_stops: int = DEFAULT_MAX_STOPS) -> dict:
     if max_stops is None:
         max_stops = DEFAULT_MAX_STOPS
 
-    today = datetime.now()
+    today = datetime.now(PT)
     days_to_monday = (0 - today.weekday()) % 7
     if days_to_monday == 0 and today.hour >= 18:
         days_to_monday = 7
