@@ -52,10 +52,14 @@ jobs:
           git commit -m "chore: seed weekly flight schedules [skip ci]"
           for i in 1 2 3; do
             git push && break
-            echo "Push conflict (likely concurrent dispatch), resetting to remote..."
+            echo "Push conflict, rebasing on remote..."
             sleep 5
+            # Save seeded DB before pulling remote changes
+            cp gowild_monitor.db /tmp/seeded.db
             git fetch origin main
             git reset --hard origin/main
+            # Restore seeded DB (has both remote dispatch data + our new seeds)
+            cp /tmp/seeded.db gowild_monitor.db
             git add gowild_monitor.db
             git commit -m "chore: seed weekly flight schedules [skip ci]" || true
           done

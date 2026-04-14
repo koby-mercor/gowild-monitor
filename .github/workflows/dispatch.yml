@@ -44,10 +44,12 @@ jobs:
           git commit -m "chore: update availability data [skip ci]"
           for i in 1 2 3; do
             git push && break
-            echo "Push conflict (likely concurrent run), resetting to remote..."
+            echo "Push conflict, rebasing on remote..."
             sleep 5
+            cp gowild_monitor.db /tmp/checked.db
             git fetch origin main
             git reset --hard origin/main
+            cp /tmp/checked.db gowild_monitor.db
             git add gowild_monitor.db
             git commit -m "chore: update availability data [skip ci]" || true
           done
