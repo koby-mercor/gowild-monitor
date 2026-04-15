@@ -70,9 +70,11 @@ def api_routes():
             """
             SELECT r.origin, r.destination, r.is_nonstop, fs.direction,
                 COUNT(DISTINCT fs.week_of) AS weeks,
-                COUNT(*) AS total_checks,
+                COUNT(ac.check_id) AS total_checks,
                 SUM(ac.flight_found) AS times_found,
-                ROUND(100.0 * SUM(ac.flight_found) / COUNT(*), 1) AS availability_pct,
+                CASE WHEN COUNT(ac.check_id) > 0
+                    THEN ROUND(100.0 * SUM(ac.flight_found) / COUNT(ac.check_id), 1)
+                END AS availability_pct,
                 ROUND(AVG(CASE WHEN ac.flight_found THEN ac.price_cents END) / 100.0, 0) AS avg_price
             FROM routes r
             LEFT JOIN flight_schedules fs ON r.route_id = fs.route_id
@@ -189,9 +191,11 @@ def api_destinations():
             """
             SELECT r.origin, r.destination, r.is_nonstop, fs.direction,
                 COUNT(DISTINCT fs.week_of) AS weeks,
-                COUNT(*) AS total_checks,
+                COUNT(ac.check_id) AS total_checks,
                 SUM(ac.flight_found) AS times_found,
-                ROUND(100.0 * SUM(ac.flight_found) / COUNT(*), 1) AS availability_pct,
+                CASE WHEN COUNT(ac.check_id) > 0
+                    THEN ROUND(100.0 * SUM(ac.flight_found) / COUNT(ac.check_id), 1)
+                END AS availability_pct,
                 ROUND(AVG(CASE WHEN ac.flight_found THEN ac.price_cents END) / 100.0, 0) AS avg_price
             FROM routes r
             LEFT JOIN flight_schedules fs ON r.route_id = fs.route_id
