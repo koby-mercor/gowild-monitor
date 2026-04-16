@@ -244,6 +244,48 @@ def api_destinations():
         ).fetchall()
         for sr in stops_rows:
             stops_info[sr["far_dest"]] = {"min": sr["min_stops"], "max": sr["max_stops"]}
+
+        # Schedule day/hour metadata per far destination (for day-of-week + time filters)
+        schedule_meta = {}
+        meta_rows = conn.execute(
+            """
+            SELECT
+                CASE WHEN fs.direction = 'return' THEN r.origin ELSE r.destination END AS far_dest,
+                CAST(strftime('%w', substr(fs.departure_pt, 1, 19)) AS INTEGER) AS dow,
+                CAST(substr(fs.departure_pt, 12, 2) AS INTEGER) AS dep_hour
+            FROM flight_schedules fs
+            JOIN routes r ON r.route_id = fs.route_id
+            WHERE r.active = 1
+            GROUP BY far_dest, dow, dep_hour
+            """
+        ).fetchall()
+        for mr in meta_rows:
+            far = mr["far_dest"]
+            if far not in schedule_meta:
+                schedule_meta[far] = {"days": set(), "hours": set()}
+            schedule_meta[far]["days"].add(mr["dow"])
+            schedule_meta[far]["hours"].add(mr["dep_hour"])
+
+        # Upcoming flight info per far destination
+        upcoming_info = {}
+        upcoming_rows = conn.execute(
+            """
+            SELECT
+                CASE WHEN fs.direction = 'return' THEN r.origin ELSE r.destination END AS far_dest,
+                COUNT(*) AS upcoming_count,
+                MIN(fs.departure_pt) AS next_departure
+            FROM flight_schedules fs
+            JOIN routes r ON r.route_id = fs.route_id
+            WHERE r.active = 1
+              AND fs.departure_pt > datetime('now')
+            GROUP BY far_dest
+            """
+        ).fetchall()
+        for ur in upcoming_rows:
+            upcoming_info[ur["far_dest"]] = {
+                "count": ur["upcoming_count"],
+                "next_departure": ur["next_departure"],
+            }
     finally:
         conn.close()
 
@@ -349,6 +391,11 @@ def api_destinations():
             "combined_pct": combined_pct,
             "confidence": _confidence(data["weeks"], combined_pct),
             "flight_count": flight_counts.get(dest, 0),
+            "departure_days": sorted(schedule_meta.get(dest, {}).get("days", set())),
+            "departure_hours": sorted(schedule_meta.get(dest, {}).get("hours", set())),
+            "has_upcoming_flights": dest in upcoming_info,
+            "upcoming_flight_count": upcoming_info.get(dest, {}).get("count", 0),
+            "next_departure": upcoming_info.get(dest, {}).get("next_departure"),
         })
 
     return jsonify(result)

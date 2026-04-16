@@ -465,8 +465,15 @@ body {
   padding: 6px 16px 10px;
   flex-shrink: 0;
   display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.filter-row {
+  display: flex;
   gap: 5px;
   flex-wrap: wrap;
+  width: 100%;
 }
 
 .filter-pill {
@@ -492,6 +499,38 @@ body {
   background: var(--accent-blue);
   border-color: var(--accent-blue);
   color: #fff;
+}
+
+/* Small pills for day/time filters */
+.filter-pill-sm {
+  padding: 2px 7px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 10px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.filter-pill-sm:hover {
+  border-color: var(--text-dim);
+  color: var(--text-secondary);
+}
+
+.filter-pill-sm.active {
+  background: var(--accent-purple);
+  border-color: var(--accent-purple);
+  color: #fff;
+}
+
+.filter-row-times .filter-pill-sm.active {
+  background: var(--accent-amber);
+  border-color: var(--accent-amber);
+  color: #000;
 }
 
 /* Destination list */

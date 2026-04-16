@@ -88,12 +88,30 @@
       </div>
 
       <div class="sidebar-filters" id="filter-pills">
-        <button class="filter-pill active" data-filter="all">All</button>
-        <button class="filter-pill" data-filter="available">Available</button>
-        <button class="filter-pill" data-filter="nodata">No Data</button>
-        <button class="filter-pill" data-filter="nonstop">Nonstop</button>
-        <button class="filter-pill" data-filter="SFO">SFO</button>
-        <button class="filter-pill" data-filter="SJC">SJC</button>
+        <div class="filter-row filter-row-status">
+          <button class="filter-pill active" data-filter="all">All</button>
+          <button class="filter-pill" data-filter="available">Available</button>
+          <button class="filter-pill" data-filter="nodata">No Data</button>
+          <button class="filter-pill" data-filter="upcoming">Upcoming</button>
+          <button class="filter-pill" data-filter="nonstop">Nonstop</button>
+          <button class="filter-pill" data-filter="SFO">SFO</button>
+          <button class="filter-pill" data-filter="SJC">SJC</button>
+        </div>
+        <div class="filter-row filter-row-days" id="day-pills">
+          <button class="filter-pill-sm" data-day="1">Mon</button>
+          <button class="filter-pill-sm" data-day="2">Tue</button>
+          <button class="filter-pill-sm" data-day="3">Wed</button>
+          <button class="filter-pill-sm" data-day="4">Thu</button>
+          <button class="filter-pill-sm" data-day="5">Fri</button>
+          <button class="filter-pill-sm" data-day="6">Sat</button>
+          <button class="filter-pill-sm" data-day="0">Sun</button>
+        </div>
+        <div class="filter-row filter-row-times" id="time-pills">
+          <button class="filter-pill-sm" data-time="morning">Morning</button>
+          <button class="filter-pill-sm" data-time="afternoon">Afternoon</button>
+          <button class="filter-pill-sm" data-time="evening">Evening</button>
+          <button class="filter-pill-sm" data-time="redeye">Red-eye</button>
+        </div>
       </div>
 
       <div class="sidebar-count" id="sidebar-count"></div>
@@ -201,6 +219,8 @@
     stats: {},
     currentFilter: 'all',
     searchQuery: '',
+    selectedDays: [],
+    selectedTimes: [],
     sortColumn: 'combined_pct',
     sortAsc: false,
     map: null,
@@ -215,6 +235,13 @@
   };
 
   var ORIGINS = ['SFO', 'SJC'];
+
+  var TIME_BUCKETS = {
+    morning:   { min: 6,  max: 11 },
+    afternoon: { min: 12, max: 17 },
+    evening:   { min: 18, max: 23 },
+    redeye:    { min: 0,  max: 5  }
+  };
 
   // -- Color Helpers -----------------------------------------------
 
@@ -726,6 +753,10 @@
       result = result.filter(function(d) {
         return d.outbound === null && d.return === null;
       });
+    } else if (f === 'upcoming') {
+      result = result.filter(function(d) {
+        return d.has_upcoming_flights === true;
+      });
     } else if (f === 'nonstop') {
       result = result.filter(function(d) {
         return d.is_nonstop === true;
@@ -741,6 +772,31 @@
       result = result.filter(function(d) {
         var city = cityFor(d.destination).toUpperCase();
         return d.destination.indexOf(q) !== -1 || city.indexOf(q) !== -1;
+      });
+    }
+
+    // Day of week filter (multi-select, composes with status filter)
+    if (state.selectedDays.length > 0) {
+      result = result.filter(function(d) {
+        if (!d.departure_days || d.departure_days.length === 0) return false;
+        for (var i = 0; i < state.selectedDays.length; i++) {
+          if (d.departure_days.indexOf(state.selectedDays[i]) !== -1) return true;
+        }
+        return false;
+      });
+    }
+
+    // Time of day filter (multi-select, composes with status + day filters)
+    if (state.selectedTimes.length > 0) {
+      result = result.filter(function(d) {
+        if (!d.departure_hours || d.departure_hours.length === 0) return false;
+        for (var t = 0; t < state.selectedTimes.length; t++) {
+          var bucket = TIME_BUCKETS[state.selectedTimes[t]];
+          for (var h = 0; h < d.departure_hours.length; h++) {
+            if (d.departure_hours[h] >= bucket.min && d.departure_hours[h] <= bucket.max) return true;
+          }
+        }
+        return false;
       });
     }
 
@@ -794,6 +850,46 @@
     for (var i = 0; i < pills.length; i++) pills[i].classList.remove('active');
     btn.classList.add('active');
 
+    // Reset day/time selections when "All" is clicked
+    if (filter === 'all') {
+      state.selectedDays = [];
+      state.selectedTimes = [];
+      var smPills = document.querySelectorAll('.filter-pill-sm');
+      for (var j = 0; j < smPills.length; j++) smPills[j].classList.remove('active');
+    }
+
+    renderSidebarList();
+  });
+
+  // Day-of-week pills (multi-select)
+  document.getElementById('day-pills').addEventListener('click', function(e) {
+    var btn = e.target.closest('.filter-pill-sm');
+    if (!btn || !btn.dataset.day) return;
+    var day = parseInt(btn.dataset.day, 10);
+    var idx = state.selectedDays.indexOf(day);
+    if (idx === -1) {
+      state.selectedDays.push(day);
+      btn.classList.add('active');
+    } else {
+      state.selectedDays.splice(idx, 1);
+      btn.classList.remove('active');
+    }
+    renderSidebarList();
+  });
+
+  // Time-of-day pills (multi-select)
+  document.getElementById('time-pills').addEventListener('click', function(e) {
+    var btn = e.target.closest('.filter-pill-sm');
+    if (!btn || !btn.dataset.time) return;
+    var time = btn.dataset.time;
+    var idx = state.selectedTimes.indexOf(time);
+    if (idx === -1) {
+      state.selectedTimes.push(time);
+      btn.classList.add('active');
+    } else {
+      state.selectedTimes.splice(idx, 1);
+      btn.classList.remove('active');
+    }
     renderSidebarList();
   });
 
