@@ -140,6 +140,7 @@ def dispatch():
 
                     status = "AVAILABLE" if result["flight_found"] else "FULL"
                     dep_time = flight["departure_pt"][11:16]
+                    price_info = f" ${result['price']}" if result.get("price") else ""
                     print(f"    {dep_time} -> {status}{price_info}")
 
                     if result["error"]:
