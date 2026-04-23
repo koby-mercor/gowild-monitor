@@ -85,7 +85,7 @@
       <div class="trip-bubble-body" id="trip-bubble-body"></div>
       <div class="trip-bubble-footer">
         <a class="trip-bubble-book" id="trip-bubble-book" href="https://www.flyfrontier.com/" target="_blank" rel="noopener">
-          Book on Frontier &nearr;
+          Find flight &nearr;
         </a>
       </div>
     </div>
@@ -1163,9 +1163,17 @@
     var outbound = filtered.filter(function(s) { return s.direction === 'outbound'; });
     var returnFl = filtered.filter(function(s) { return s.direction === 'return'; });
 
-    // If an outbound is selected, narrow returns to compatible ones (depart after arrival, within 30 days)
-    var returnsFilteredByOutbound = false;
+    // Once a leg is selected, collapse that section to only the selected flight.
     if (state.selectedOutbound) {
+      outbound = outbound.filter(function(s) { return s.schedule_id === state.selectedOutbound.schedule.schedule_id; });
+    }
+    if (state.selectedReturn) {
+      returnFl = returnFl.filter(function(s) { return s.schedule_id === state.selectedReturn.schedule.schedule_id; });
+    }
+
+    // If an outbound is selected and return isn't, narrow returns to compatible ones.
+    var returnsFilteredByOutbound = false;
+    if (state.selectedOutbound && !state.selectedReturn) {
       var narrowed = filterReturnsForOutbound(returnFl, state.selectedOutbound);
       if (narrowed.length !== returnFl.length) returnsFilteredByOutbound = true;
       returnFl = narrowed;
@@ -1418,25 +1426,66 @@
     html += tripLegHtml(ret, '&larr; RETURN',   'var(--accent-purple)');
     body.innerHTML = html;
 
-    // Build a Google Flights deep-link for whichever leg(s) are selected —
-    // Frontier's own search doesn't accept reliable URL params, so we use
-    // Google Flights's natural-language query endpoint.
-    var query = null;
-    if (out && ret) {
-      var outDate = out.schedule.departure_pt.substr(0, 10);
-      var retDate = ret.schedule.departure_pt.substr(0, 10);
-      query = 'Frontier Airlines flights from ' + out.origin + ' to ' + out.destination
-        + ' on ' + outDate + ' returning ' + retDate;
-    } else if (out) {
-      query = 'One way Frontier Airlines flights from ' + out.origin + ' to ' + out.destination
-        + ' on ' + out.schedule.departure_pt.substr(0, 10);
-    } else if (ret) {
-      query = 'One way Frontier Airlines flights from ' + ret.origin + ' to ' + ret.destination
-        + ' on ' + ret.schedule.departure_pt.substr(0, 10);
+    // Build a Google Flights deep-link via tfs= (base64 protobuf). The schema
+    // matches fast-flights' flights.proto: Info{data=3, passengers=8, seat=9,
+    // trip=19}, FlightData{date=2, from_flight=13, to_flight=14},
+    // Airport{airport=2}.
+    var url = 'https://www.flyfrontier.com/';
+    var legs = [];
+    if (out) legs.push({ from: out.origin, to: out.destination, date: out.schedule.departure_pt.substr(0, 10) });
+    if (ret) legs.push({ from: ret.origin, to: ret.destination, date: ret.schedule.departure_pt.substr(0, 10) });
+    if (legs.length > 0) {
+      var oneWay = legs.length === 1;
+      var tfs = buildGoogleFlightsTfs(legs, oneWay);
+      url = 'https://www.google.com/travel/flights/search?tfs=' + encodeURIComponent(tfs);
     }
-    bookLink.href = query
-      ? 'https://www.google.com/travel/flights?q=' + encodeURIComponent(query)
-      : 'https://www.flyfrontier.com/';
+    bookLink.href = url;
+  }
+
+  // -- Google Flights tfs= encoder (protobuf wire format, base64url) -------
+  function pbVarint(n) {
+    var bytes = [];
+    while (n > 127) { bytes.push((n & 0x7f) | 0x80); n = Math.floor(n / 128); }
+    bytes.push(n & 0x7f);
+    return bytes;
+  }
+  function pbTag(field, wire) { return pbVarint((field << 3) | wire); }
+  function pbBytes(s) {
+    var out = [];
+    for (var i = 0; i < s.length; i++) out.push(s.charCodeAt(i));
+    return out;
+  }
+  function pbString(field, s) {
+    var b = pbBytes(s);
+    return pbTag(field, 2).concat(pbVarint(b.length), b);
+  }
+  function pbVarintField(field, value) { return pbTag(field, 0).concat(pbVarint(value)); }
+  function pbMessage(field, inner) { return pbTag(field, 2).concat(pbVarint(inner.length), inner); }
+  function bytesToBase64(bytes) {
+    var binary = '';
+    for (var i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary);
+  }
+
+  function buildGoogleFlightsTfs(legs, oneWay) {
+    var info = [];
+    for (var i = 0; i < legs.length; i++) {
+      var leg = legs[i];
+      var fromAp = pbString(2, leg.from);      // Airport.airport = 2
+      var toAp   = pbString(2, leg.to);
+      var fd = [].concat(
+        pbString(2, leg.date),                 // FlightData.date = 2
+        pbMessage(13, fromAp),                 // FlightData.from_flight = 13
+        pbMessage(14, toAp)                    // FlightData.to_flight = 14
+      );
+      info = info.concat(pbMessage(3, fd));    // Info.data = 3 (repeated)
+    }
+    // passengers is `repeated Passenger` — in proto3 this serialises as a
+    // packed varint list, so we emit it as a length-delimited message.
+    info = info.concat(pbMessage(8, pbVarint(1)));   // [ADULT]
+    info = info.concat(pbVarintField(9, 1));         // Info.seat = ECONOMY
+    info = info.concat(pbVarintField(19, oneWay ? 2 : 1)); // Info.trip
+    return bytesToBase64(info);
   }
 
   // Wire up flight card clicks (delegated from detail-body)
