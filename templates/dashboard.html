@@ -73,6 +73,23 @@
         <span>Origin airport</span>
       </div>
     </div>
+
+    <!-- Trip Selection Bubble (bottom-right of map) -->
+    <div class="trip-bubble" id="trip-bubble" style="display:none">
+      <div class="trip-bubble-header">
+        <span class="trip-bubble-title">Selected Trip</span>
+        <div class="trip-bubble-actions">
+          <button class="trip-bubble-clear" id="trip-bubble-clear" title="Clear selection">Clear</button>
+        </div>
+      </div>
+      <div class="trip-bubble-body" id="trip-bubble-body"></div>
+      <div class="trip-bubble-footer">
+        <a class="trip-bubble-book" id="trip-bubble-book" href="https://www.flyfrontier.com/" target="_blank" rel="noopener">
+          Book on Frontier &nearr;
+        </a>
+        <span class="trip-bubble-note">Flight # not tracked — confirm on frontier.com</span>
+      </div>
+    </div>
   </div>
 
   <!-- Sidebar (right, always visible) -->
@@ -243,6 +260,8 @@
     detailSelectedTimes: [],
     detailSchedules: [],
     detailBodyEl: null,
+    selectedOutbound: null,  // {schedule, origin, destination}
+    selectedReturn: null,
     sortColumn: 'combined_pct',
     sortAsc: false,
     map: null,
@@ -1038,6 +1057,11 @@
     var detailSmPills = document.querySelectorAll('#detail-filters .filter-pill-sm');
     for (var p = 0; p < detailSmPills.length; p++) detailSmPills[p].classList.remove('active');
 
+    // Reset trip selection (selection is route-specific)
+    state.selectedOutbound = null;
+    state.selectedReturn = null;
+    renderTripBubble();
+
     // Load flight details
     var body = document.getElementById('detail-body');
     body.innerHTML = '<div class="detail-loading">Loading flight details...</div>';
@@ -1113,6 +1137,19 @@
     return result;
   }
 
+  function filterReturnsForOutbound(returns, outboundSelection) {
+    if (!outboundSelection) return returns;
+    var outArr = outboundSelection.schedule.arrival_pt;
+    if (!outArr) return returns;
+    var outArrMs = new Date(outArr).getTime();
+    var windowMs = 30 * 24 * 60 * 60 * 1000; // 30 days
+    return returns.filter(function(s) {
+      if (!s.departure_pt) return false;
+      var retDepMs = new Date(s.departure_pt).getTime();
+      return retDepMs > outArrMs && retDepMs < outArrMs + windowMs;
+    });
+  }
+
   function renderDetailBody() {
     var bodyEl = state.detailBodyEl;
     if (!bodyEl) return;
@@ -1127,23 +1164,39 @@
     var outbound = filtered.filter(function(s) { return s.direction === 'outbound'; });
     var returnFl = filtered.filter(function(s) { return s.direction === 'return'; });
 
+    // If an outbound is selected, narrow returns to compatible ones (depart after arrival, within 30 days)
+    var returnsFilteredByOutbound = false;
+    if (state.selectedOutbound) {
+      var narrowed = filterReturnsForOutbound(returnFl, state.selectedOutbound);
+      if (narrowed.length !== returnFl.length) returnsFilteredByOutbound = true;
+      returnFl = narrowed;
+    }
+
     var html = '';
 
     if (outbound.length > 0) {
       html += '<div class="detail-section">'
         + '<div class="detail-section-title outbound-title">&rarr; Outbound Flights</div>'
-        + renderDetailFlights(outbound)
+        + renderDetailFlights(outbound, 'outbound')
         + '</div>';
     }
 
-    if (returnFl.length > 0) {
+    if (returnFl.length > 0 || state.selectedOutbound) {
+      var retTitle = '&larr; Return Flights';
+      if (returnsFilteredByOutbound) {
+        retTitle += ' <span class="return-filter-note">· compatible with your outbound</span>';
+      }
       html += '<div class="detail-section">'
-        + '<div class="detail-section-title return-title">&larr; Return Flights</div>'
-        + renderDetailFlights(returnFl)
-        + '</div>';
+        + '<div class="detail-section-title return-title">' + retTitle + '</div>';
+      if (returnFl.length > 0) {
+        html += renderDetailFlights(returnFl, 'return');
+      } else {
+        html += '<div class="detail-no-data">No return flights depart within 30 days of your outbound.</div>';
+      }
+      html += '</div>';
     }
 
-    if (!outbound.length && !returnFl.length) {
+    if (!outbound.length && !returnFl.length && !state.selectedOutbound) {
       var hasFilters = state.detailSelectedDays.length > 0 || state.detailSelectedTimes.length > 0;
       html = '<div class="detail-no-data">'
         + (hasFilters ? 'No flights match the selected filters.' : 'No flights categorized by direction.')
@@ -1193,11 +1246,9 @@
     });
   }
 
-  function renderDetailFlights(schedules) {
-    // Sort by week desc, then departure time
+  function renderDetailFlights(schedules, direction) {
+    // Sort by departure time ascending (earliest first)
     schedules.sort(function(a, b) {
-      var wkCmp = (b.week_of || '').localeCompare(a.week_of || '');
-      if (wkCmp !== 0) return wkCmp;
       return (a.departure_pt || '').localeCompare(b.departure_pt || '');
     });
 
@@ -1205,6 +1256,10 @@
 
     var DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     var MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    var selectedId = null;
+    if (direction === 'outbound' && state.selectedOutbound) selectedId = state.selectedOutbound.schedule.schedule_id;
+    if (direction === 'return'   && state.selectedReturn)   selectedId = state.selectedReturn.schedule.schedule_id;
 
     for (var i = 0; i < schedules.length; i++) {
       var s = schedules[i];
@@ -1229,7 +1284,8 @@
         routeViz = '<span class="route-badge connecting">' + stopsNum + ' stop via DEN</span>';
       }
 
-      html += '<div class="detail-flight-card">';
+      var selClass = (selectedId === s.schedule_id) ? ' selected' : '';
+      html += '<div class="detail-flight-card' + selClass + '" data-schedule-id="' + s.schedule_id + '" data-direction="' + (direction || '') + '">';
       html += '<div class="detail-flight-top">'
         + '<span class="detail-flight-time">' + depTime + ' &rarr; ' + arrTime + '</span>'
         + '<span class="detail-flight-meta"><span>' + dur + ' total</span>' + routeViz + '</span>'
@@ -1269,6 +1325,122 @@
 
     return html;
   }
+
+  // ================================================================
+  //  TRIP SELECTION / BOOKING BUBBLE
+  // ================================================================
+
+  function findScheduleById(id) {
+    for (var i = 0; i < state.detailSchedules.length; i++) {
+      if (state.detailSchedules[i].schedule_id === id) return state.detailSchedules[i];
+    }
+    return null;
+  }
+
+  function toggleTripSelection(scheduleId, direction) {
+    var s = findScheduleById(scheduleId);
+    if (!s) return;
+    var dest = state._selectedDest;
+
+    // Build selection object. For outbound: origin = home airport (s._origin), destination = far dest.
+    // For return: origin = far dest, destination = home airport.
+    var sel;
+    if (direction === 'outbound') {
+      sel = { schedule: s, origin: s._origin, destination: dest };
+    } else {
+      sel = { schedule: s, origin: dest, destination: s._origin };
+    }
+
+    var key = direction === 'outbound' ? 'selectedOutbound' : 'selectedReturn';
+    var current = state[key];
+    if (current && current.schedule.schedule_id === scheduleId) {
+      state[key] = null; // toggle off
+    } else {
+      state[key] = sel;
+    }
+
+    renderDetailBody();
+    renderTripBubble();
+  }
+
+  function clearTripSelection() {
+    state.selectedOutbound = null;
+    state.selectedReturn = null;
+    renderDetailBody();
+    renderTripBubble();
+  }
+
+  function formatTripLegDate(iso) {
+    if (!iso) return '';
+    var DAY_NAMES_FULL = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    var MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    var datePart = iso.substr(0, 10);
+    var d = new Date(datePart + 'T00:00:00Z');
+    return DAY_NAMES_FULL[d.getUTCDay()] + ', ' + MONTH_NAMES[d.getUTCMonth()] + ' ' + d.getUTCDate();
+  }
+
+  function tripLegHtml(sel, label, color) {
+    if (!sel) return '';
+    var s = sel.schedule;
+    var stopsTxt = (s.stops || 0) === 0 ? 'Nonstop' : (s.stops + ' stop via DEN');
+    var dateStr = formatTripLegDate(s.departure_pt);
+    var depTime = formatTime(s.departure_pt);
+    var arrTime = formatTime(s.arrival_pt);
+    return '<div class="trip-leg">'
+      + '<div class="trip-leg-label" style="color:' + color + '">' + label + '</div>'
+      + '<div class="trip-leg-route">' + sel.origin + ' &rarr; ' + sel.destination + '</div>'
+      + '<div class="trip-leg-when">' + dateStr + ' &middot; ' + depTime + ' &rarr; ' + arrTime + '</div>'
+      + '<div class="trip-leg-meta">' + stopsTxt + '</div>'
+      + '</div>';
+  }
+
+  function renderTripBubble() {
+    var bubble = document.getElementById('trip-bubble');
+    var body = document.getElementById('trip-bubble-body');
+    var bookLink = document.getElementById('trip-bubble-book');
+    var out = state.selectedOutbound;
+    var ret = state.selectedReturn;
+
+    if (!out && !ret) {
+      bubble.style.display = 'none';
+      return;
+    }
+    bubble.style.display = '';
+
+    var html = '';
+    html += tripLegHtml(out, '&rarr; OUTBOUND', 'var(--accent-blue)');
+    html += tripLegHtml(ret, '&larr; RETURN',   'var(--accent-purple)');
+    body.innerHTML = html;
+
+    // Build a Google Flights deep-link for whichever leg(s) are selected —
+    // Frontier's own search doesn't accept reliable URL params, so we use
+    // Google Flights which parses query-string dates/airports.
+    var url = 'https://www.flyfrontier.com/';
+    if (out) {
+      var outDate = out.schedule.departure_pt.substr(0, 10);
+      if (ret) {
+        var retDate = ret.schedule.departure_pt.substr(0, 10);
+        url = 'https://www.google.com/travel/flights?q=Flights%20from%20' + out.origin
+          + '%20to%20' + out.destination + '%20on%20' + outDate + '%20returning%20' + retDate;
+      } else {
+        url = 'https://www.google.com/travel/flights?q=Flights%20from%20' + out.origin
+          + '%20to%20' + out.destination + '%20on%20' + outDate;
+      }
+    }
+    bookLink.href = url;
+  }
+
+  // Wire up flight card clicks (delegated from detail-body)
+  document.getElementById('detail-body').addEventListener('click', function(e) {
+    var card = e.target.closest('.detail-flight-card');
+    if (!card) return;
+    var sid = parseInt(card.dataset.scheduleId, 10);
+    var dir = card.dataset.direction;
+    if (!sid || !dir) return;
+    toggleTripSelection(sid, dir);
+  });
+
+  document.getElementById('trip-bubble-clear').addEventListener('click', clearTripSelection);
 
   // -- Expose showDetail globally (for popup buttons if needed) ----
   window.showDetail = showDetail;
