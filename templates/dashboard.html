@@ -1156,7 +1156,7 @@
     var allSchedules = state.detailSchedules;
 
     if (allSchedules.length === 0) {
-      bodyEl.innerHTML = '<div class="detail-no-data">No schedule data available yet.</div>';
+      bodyEl.innerHTML = '<div class="detail-no-data">No upcoming flights scheduled.</div>';
       return;
     }
 
@@ -1240,8 +1240,15 @@
         }
         allSchedules = allSchedules.concat(schedules);
       }
-      state.detailSchedules = allSchedules;
-      document.getElementById('detail-filters').style.display = allSchedules.length > 0 ? '' : 'none';
+      // Only future flights are selectable — past flights informed the
+      // availability stats but aren't useful for booking.
+      var nowMs = Date.now();
+      var upcoming = allSchedules.filter(function(s) {
+        if (!s.departure_pt) return false;
+        return new Date(s.departure_pt).getTime() > nowMs;
+      });
+      state.detailSchedules = upcoming;
+      document.getElementById('detail-filters').style.display = upcoming.length > 0 ? '' : 'none';
       renderDetailBody();
     });
   }
