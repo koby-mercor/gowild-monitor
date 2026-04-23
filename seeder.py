@@ -18,7 +18,11 @@ def _is_nonstop_route(origin: str, dest: str) -> bool:
 
 
 def seed_week(week_start: str, max_stops: int = DEFAULT_MAX_STOPS) -> dict:
-    """Seed flight schedules for a full week: all destinations, both directions, Mon-Sun.
+    """Seed flight schedules for a full week.
+
+    Outbound searches cover Mon-Sun of the week. Return searches extend
+    through Tuesday of the *following* week so weekend trips (depart
+    Fri/Sat/Sun, return Mon/Tue) have matching returns in the same seed.
 
     week_start: 'YYYY-MM-DD' format, must be a Monday.
     Returns: {routes_checked, flights_found, flights_inserted, errors}
@@ -26,10 +30,14 @@ def seed_week(week_start: str, max_stops: int = DEFAULT_MAX_STOPS) -> dict:
     if max_stops is None:
         max_stops = DEFAULT_MAX_STOPS
 
-    fri_dt = datetime.strptime(week_start, "%Y-%m-%d")
-    dates = [
-        (fri_dt + timedelta(days=i)).strftime("%Y-%m-%d")
-        for i in range(7)  # Friday through Thursday (full week)
+    monday = datetime.strptime(week_start, "%Y-%m-%d")
+    outbound_dates = [
+        (monday + timedelta(days=i)).strftime("%Y-%m-%d")
+        for i in range(7)  # Mon-Sun of this week
+    ]
+    return_dates = [
+        (monday + timedelta(days=i)).strftime("%Y-%m-%d")
+        for i in range(9)  # Mon-Sun + next Mon + next Tue
     ]
 
     stats = {"routes_checked": 0, "flights_found": 0, "flights_inserted": 0, "errors": 0}
@@ -41,7 +49,10 @@ def seed_week(week_start: str, max_stops: int = DEFAULT_MAX_STOPS) -> dict:
             searches.append((home_airport, dest, "outbound"))
             searches.append((dest, home_airport, "return"))
 
-    total = len(searches) * len(dates)
+    total = sum(
+        len(outbound_dates if direction == "outbound" else return_dates)
+        for _, _, direction in searches
+    )
     search_num = 0
 
     with db_session() as conn:
@@ -49,6 +60,7 @@ def seed_week(week_start: str, max_stops: int = DEFAULT_MAX_STOPS) -> dict:
             is_nonstop = 1 if _is_nonstop_route(search_origin, search_dest) else 0
             route_id = get_or_create_route(conn, search_origin, search_dest, is_nonstop)
 
+            dates = outbound_dates if direction == "outbound" else return_dates
             for date_str in dates:
                 search_num += 1
                 sys.stdout.write(
