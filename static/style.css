@@ -533,6 +533,15 @@ body {
   color: #000;
 }
 
+/* Detail view day/time filters */
+.detail-filters {
+  padding: 6px 16px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
 /* Destination list */
 .dest-list {
   flex: 1;

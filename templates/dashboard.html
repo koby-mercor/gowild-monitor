@@ -195,6 +195,24 @@
         </div>
       </div>
 
+      <div class="detail-filters" id="detail-filters" style="display:none">
+        <div class="filter-row filter-row-days" id="detail-day-pills">
+          <button class="filter-pill-sm" data-day="1">Mon</button>
+          <button class="filter-pill-sm" data-day="2">Tue</button>
+          <button class="filter-pill-sm" data-day="3">Wed</button>
+          <button class="filter-pill-sm" data-day="4">Thu</button>
+          <button class="filter-pill-sm" data-day="5">Fri</button>
+          <button class="filter-pill-sm" data-day="6">Sat</button>
+          <button class="filter-pill-sm" data-day="0">Sun</button>
+        </div>
+        <div class="filter-row filter-row-times" id="detail-time-pills">
+          <button class="filter-pill-sm" data-time="morning">Morning</button>
+          <button class="filter-pill-sm" data-time="afternoon">Afternoon</button>
+          <button class="filter-pill-sm" data-time="evening">Evening</button>
+          <button class="filter-pill-sm" data-time="redeye">Red-eye</button>
+        </div>
+      </div>
+
       <div class="detail-body" id="detail-body">
         <div class="detail-loading">Select a destination to view details</div>
       </div>
@@ -221,6 +239,10 @@
     searchQuery: '',
     selectedDays: [],
     selectedTimes: [],
+    detailSelectedDays: [],
+    detailSelectedTimes: [],
+    detailSchedules: [],
+    detailBodyEl: null,
     sortColumn: 'combined_pct',
     sortAsc: false,
     map: null,
@@ -893,6 +915,38 @@
     renderSidebarList();
   });
 
+  // Detail view day-of-week pills
+  document.getElementById('detail-day-pills').addEventListener('click', function(e) {
+    var btn = e.target.closest('.filter-pill-sm');
+    if (!btn || !btn.dataset.day) return;
+    var day = parseInt(btn.dataset.day, 10);
+    var idx = state.detailSelectedDays.indexOf(day);
+    if (idx === -1) {
+      state.detailSelectedDays.push(day);
+      btn.classList.add('active');
+    } else {
+      state.detailSelectedDays.splice(idx, 1);
+      btn.classList.remove('active');
+    }
+    renderDetailBody();
+  });
+
+  // Detail view time-of-day pills
+  document.getElementById('detail-time-pills').addEventListener('click', function(e) {
+    var btn = e.target.closest('.filter-pill-sm');
+    if (!btn || !btn.dataset.time) return;
+    var time = btn.dataset.time;
+    var idx = state.detailSelectedTimes.indexOf(time);
+    if (idx === -1) {
+      state.detailSelectedTimes.push(time);
+      btn.classList.add('active');
+    } else {
+      state.detailSelectedTimes.splice(idx, 1);
+      btn.classList.remove('active');
+    }
+    renderDetailBody();
+  });
+
   // ================================================================
   //  DETAIL VIEW (in sidebar)
   // ================================================================
@@ -978,6 +1032,12 @@
       confEl.textContent = '--';
     }
 
+    // Reset detail filter selections when opening a new destination
+    state.detailSelectedDays = [];
+    state.detailSelectedTimes = [];
+    var detailSmPills = document.querySelectorAll('#detail-filters .filter-pill-sm');
+    for (var p = 0; p < detailSmPills.length; p++) detailSmPills[p].classList.remove('active');
+
     // Load flight details
     var body = document.getElementById('detail-body');
     body.innerHTML = '<div class="detail-loading">Loading flight details...</div>';
@@ -1028,7 +1088,75 @@
     }
   }
 
+  function filterDetailSchedules(schedules) {
+    var result = schedules;
+    if (state.detailSelectedDays.length > 0) {
+      result = result.filter(function(s) {
+        if (!s.departure_pt) return false;
+        var datePart = s.departure_pt.substr(0, 10);
+        var d = new Date(datePart + 'T00:00:00Z');
+        return state.detailSelectedDays.indexOf(d.getUTCDay()) !== -1;
+      });
+    }
+    if (state.detailSelectedTimes.length > 0) {
+      result = result.filter(function(s) {
+        if (!s.departure_pt) return false;
+        var hour = parseInt(s.departure_pt.substr(11, 2), 10);
+        if (isNaN(hour)) return false;
+        for (var t = 0; t < state.detailSelectedTimes.length; t++) {
+          var bucket = TIME_BUCKETS[state.detailSelectedTimes[t]];
+          if (hour >= bucket.min && hour <= bucket.max) return true;
+        }
+        return false;
+      });
+    }
+    return result;
+  }
+
+  function renderDetailBody() {
+    var bodyEl = state.detailBodyEl;
+    if (!bodyEl) return;
+    var allSchedules = state.detailSchedules;
+
+    if (allSchedules.length === 0) {
+      bodyEl.innerHTML = '<div class="detail-no-data">No schedule data available yet.</div>';
+      return;
+    }
+
+    var filtered = filterDetailSchedules(allSchedules);
+    var outbound = filtered.filter(function(s) { return s.direction === 'outbound'; });
+    var returnFl = filtered.filter(function(s) { return s.direction === 'return'; });
+
+    var html = '';
+
+    if (outbound.length > 0) {
+      html += '<div class="detail-section">'
+        + '<div class="detail-section-title outbound-title">&rarr; Outbound Flights</div>'
+        + renderDetailFlights(outbound)
+        + '</div>';
+    }
+
+    if (returnFl.length > 0) {
+      html += '<div class="detail-section">'
+        + '<div class="detail-section-title return-title">&larr; Return Flights</div>'
+        + renderDetailFlights(returnFl)
+        + '</div>';
+    }
+
+    if (!outbound.length && !returnFl.length) {
+      var hasFilters = state.detailSelectedDays.length > 0 || state.detailSelectedTimes.length > 0;
+      html = '<div class="detail-no-data">'
+        + (hasFilters ? 'No flights match the selected filters.' : 'No flights categorized by direction.')
+        + '</div>';
+    }
+
+    bodyEl.innerHTML = html;
+  }
+
   function loadDetailData(dest, origins, bodyEl) {
+    state.detailBodyEl = bodyEl;
+    state.detailSchedules = [];
+
     var promises = [];
     for (var i = 0; i < origins.length; i++) {
       promises.push(
@@ -1059,36 +1187,9 @@
         }
         allSchedules = allSchedules.concat(schedules);
       }
-
-      if (allSchedules.length === 0) {
-        bodyEl.innerHTML = '<div class="detail-no-data">No schedule data available yet.</div>';
-        return;
-      }
-
-      var outbound = allSchedules.filter(function(s) { return s.direction === 'outbound'; });
-      var returnFl = allSchedules.filter(function(s) { return s.direction === 'return'; });
-
-      var html = '';
-
-      if (outbound.length > 0) {
-        html += '<div class="detail-section">'
-          + '<div class="detail-section-title outbound-title">&rarr; Outbound Flights</div>'
-          + renderDetailFlights(outbound)
-          + '</div>';
-      }
-
-      if (returnFl.length > 0) {
-        html += '<div class="detail-section">'
-          + '<div class="detail-section-title return-title">&larr; Return Flights</div>'
-          + renderDetailFlights(returnFl)
-          + '</div>';
-      }
-
-      if (!outbound.length && !returnFl.length) {
-        html += '<div class="detail-no-data">No flights categorized by direction.</div>';
-      }
-
-      bodyEl.innerHTML = html;
+      state.detailSchedules = allSchedules;
+      document.getElementById('detail-filters').style.display = allSchedules.length > 0 ? '' : 'none';
+      renderDetailBody();
     });
   }
 
@@ -1102,13 +1203,23 @@
 
     var html = '';
 
+    var DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    var MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
     for (var i = 0; i < schedules.length; i++) {
       var s = schedules[i];
       var depTime = formatTime(s.departure_pt);
       var arrTime = formatTime(s.arrival_pt);
       var dur = formatDuration(s.duration_min);
       var stopsNum = s.stops || 0;
-      var wk = s.week_of || '';
+
+      // Departure day of week (PT, not user's local tz)
+      var depDayLabel = '';
+      if (s.departure_pt) {
+        var datePart = s.departure_pt.substr(0, 10);
+        var d = new Date(datePart + 'T00:00:00Z');
+        depDayLabel = DAY_NAMES[d.getUTCDay()] + ', ' + MONTH_NAMES[d.getUTCMonth()] + ' ' + d.getUTCDate();
+      }
 
       // Build route visualization: SFO → DEN → ATL for connections
       var routeViz = '';
@@ -1124,9 +1235,11 @@
         + '<span class="detail-flight-meta"><span>' + dur + ' total</span>' + routeViz + '</span>'
         + '</div>';
 
-      if (s._origin) {
-        html += '<div class="detail-flight-origin">From '
-          + s._origin + ' &middot; Weekend of ' + wk + '</div>';
+      if (s._origin || depDayLabel) {
+        var parts = [];
+        if (s._origin) parts.push('From ' + s._origin);
+        if (depDayLabel) parts.push(depDayLabel);
+        html += '<div class="detail-flight-origin">' + parts.join(' &middot; ') + '</div>';
       }
 
       if (s.checks && s.checks.length > 0) {
