@@ -131,6 +131,8 @@ def api_route_detail(origin, destination):
     """Return detailed check history for a specific route, grouped by schedule."""
     conn = get_connection()
     try:
+        # Fetch both the outbound route (home->far) and the reverse route (far->home)
+        # so returns (stored with origin=far_dest, destination=home) are included too.
         rows = conn.execute(
             """
             SELECT fs.schedule_id, fs.departure_pt, fs.arrival_pt, fs.duration_min,
@@ -140,10 +142,11 @@ def api_route_detail(origin, destination):
             FROM flight_schedules fs
             JOIN routes r ON r.route_id = fs.route_id
             LEFT JOIN availability_checks ac ON ac.schedule_id = fs.schedule_id
-            WHERE r.origin = ? AND r.destination = ?
+            WHERE (r.origin = :home AND r.destination = :far AND fs.direction = 'outbound')
+               OR (r.origin = :far AND r.destination = :home AND fs.direction = 'return')
             ORDER BY fs.week_of DESC, fs.direction, fs.departure_pt
             """,
-            (origin.upper(), destination.upper()),
+            {"home": origin.upper(), "far": destination.upper()},
         ).fetchall()
     finally:
         conn.close()

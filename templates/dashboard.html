@@ -87,7 +87,6 @@
         <a class="trip-bubble-book" id="trip-bubble-book" href="https://www.flyfrontier.com/" target="_blank" rel="noopener">
           Book on Frontier &nearr;
         </a>
-        <span class="trip-bubble-note">Flight # not tracked — confirm on frontier.com</span>
       </div>
     </div>
   </div>
@@ -1421,20 +1420,23 @@
 
     // Build a Google Flights deep-link for whichever leg(s) are selected —
     // Frontier's own search doesn't accept reliable URL params, so we use
-    // Google Flights which parses query-string dates/airports.
-    var url = 'https://www.flyfrontier.com/';
-    if (out) {
+    // Google Flights's natural-language query endpoint.
+    var query = null;
+    if (out && ret) {
       var outDate = out.schedule.departure_pt.substr(0, 10);
-      if (ret) {
-        var retDate = ret.schedule.departure_pt.substr(0, 10);
-        url = 'https://www.google.com/travel/flights?q=Flights%20from%20' + out.origin
-          + '%20to%20' + out.destination + '%20on%20' + outDate + '%20returning%20' + retDate;
-      } else {
-        url = 'https://www.google.com/travel/flights?q=Flights%20from%20' + out.origin
-          + '%20to%20' + out.destination + '%20on%20' + outDate;
-      }
+      var retDate = ret.schedule.departure_pt.substr(0, 10);
+      query = 'Frontier Airlines flights from ' + out.origin + ' to ' + out.destination
+        + ' on ' + outDate + ' returning ' + retDate;
+    } else if (out) {
+      query = 'One way Frontier Airlines flights from ' + out.origin + ' to ' + out.destination
+        + ' on ' + out.schedule.departure_pt.substr(0, 10);
+    } else if (ret) {
+      query = 'One way Frontier Airlines flights from ' + ret.origin + ' to ' + ret.destination
+        + ' on ' + ret.schedule.departure_pt.substr(0, 10);
     }
-    bookLink.href = url;
+    bookLink.href = query
+      ? 'https://www.google.com/travel/flights?q=' + encodeURIComponent(query)
+      : 'https://www.flyfrontier.com/';
   }
 
   // Wire up flight card clicks (delegated from detail-body)

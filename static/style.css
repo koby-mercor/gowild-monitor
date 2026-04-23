@@ -1223,13 +1223,6 @@ body {
   opacity: 0.88;
 }
 
-.trip-bubble-note {
-  font-size: 9px;
-  color: var(--text-dim);
-  text-align: center;
-  font-style: italic;
-}
-
 @media (max-width: 768px) {
   .trip-bubble {
     display: none !important;
