@@ -111,12 +111,19 @@ def _flight_to_dict(f) -> dict:
 def batch_check_flights(
     origin: str, destination: str, date_str: str,
     flights_to_check: list,
-    max_stops: int = None, time_tolerance_min: int = 5,
+    max_stops: int = None, time_tolerance_min: int = 30,
 ) -> list:
     """Check multiple flights on the same route+date with a single Google Flights search.
 
-    flights_to_check: list of dicts with at least 'schedule_id' and 'departure_pt'.
+    flights_to_check: list of dicts with at least 'schedule_id' and 'departure_pt';
+        optionally 'stops' to constrain matching to same stop count.
     Returns: list of result dicts in the same order, one per flight.
+
+    Matching: for each scheduled flight, picks the fast-flights result that is
+    closest in departure time and (if schedule has 'stops') has matching stops.
+    The widened 30-min tolerance absorbs real-world week-over-week drift
+    (observed up to ~34 min on Frontier); earlier 5-min tolerance silently
+    recorded availability as "not found" when the carrier shifted the time.
     """
     start = time.time()
     search_results = None
@@ -155,16 +162,28 @@ def batch_check_flights(
         result["error"] = None
 
         dep_dt = datetime.fromisoformat(flight["departure_pt"])
+        sched_stops = flight.get("stops")
+        sched_min = dep_dt.hour * 60 + dep_dt.minute
+
+        best = None
+        best_diff = None
         for sr in search_results:
             if sr.dep_dt is None:
                 continue
-            total_diff = abs(sr.dep_dt.hour - dep_dt.hour) * 60 + abs(sr.dep_dt.minute - dep_dt.minute)
-            if total_diff <= time_tolerance_min:
-                result["flight_found"] = True
-                result["price"] = sr.price
-                result["price_cents"] = parse_price_cents(sr.price)
-                result["matched_flight"] = _flight_to_dict(sr)
-                break
+            if sched_stops is not None and sr.stops != sched_stops:
+                continue
+            sr_min = sr.dep_dt.hour * 60 + sr.dep_dt.minute
+            raw = abs(sr_min - sched_min)
+            diff = min(raw, 1440 - raw)  # wrap around midnight
+            if diff <= time_tolerance_min and (best_diff is None or diff < best_diff):
+                best = sr
+                best_diff = diff
+
+        if best is not None:
+            result["flight_found"] = True
+            result["price"] = best.price
+            result["price_cents"] = parse_price_cents(best.price)
+            result["matched_flight"] = _flight_to_dict(best)
 
         results.append(result)
 

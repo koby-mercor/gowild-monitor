@@ -166,7 +166,6 @@ def api_route_detail(origin, destination):
                 "week_of": row["week_of"],
                 "checks": [],
             }
-        # Only append if there is an actual check (LEFT JOIN may yield NULLs)
         if row["check_type"] is not None:
             schedules[sid]["checks"].append({
                 "check_type": row["check_type"],
@@ -177,7 +176,109 @@ def api_route_detail(origin, destination):
                 "num_results": row["num_results"],
             })
 
+    # Annotate upcoming schedules with per-flight prediction based on past T-24h
+    # checks of similar schedules on this route. Widening fallback buckets:
+    #   (dow, hour, stops) → (dow, stops) → (dow) → (route-wide).
+    # The narrowest bucket with ≥3 samples wins. We use successful T-24h checks only.
+    _annotate_predictions(list(schedules.values()))
+
     return jsonify(list(schedules.values()))
+
+
+def _parse_pt(iso_str):
+    """Return (dow 0=Sun..6=Sat, hour, minute) from a stored departure_pt string."""
+    from datetime import datetime
+    try:
+        dt = datetime.fromisoformat(iso_str)
+    except Exception:
+        return None
+    # %w style: Sun=0..Sat=6 (we store with tz, strftime('%w') gives the local dow)
+    # datetime.weekday() is Mon=0..Sun=6; convert to match SQLite %w
+    py_dow = dt.weekday()  # Mon=0..Sun=6
+    dow = (py_dow + 1) % 7  # → Sun=0..Sat=6
+    return dow, dt.hour, dt.minute
+
+
+def _annotate_predictions(schedules):
+    """Mutate `schedules` in place: add prediction_pct/samples/bucket to future ones."""
+    from datetime import datetime, timezone
+    now_ts = datetime.now(timezone.utc).timestamp()
+
+    # Partition past vs future; collect per-bucket stats from past schedules' successful T-24h checks.
+    by_exact = {}      # (dow, hour, stops) → [found_count, total]
+    by_dow_stops = {}  # (dow, stops)       → [found_count, total]
+    by_dow = {}        # (dow,)             → [found_count, total]
+    overall = [0, 0]
+
+    def _accum(bucket_dict, key, found_total_pair):
+        slot = bucket_dict.setdefault(key, [0, 0])
+        slot[0] += found_total_pair[0]
+        slot[1] += found_total_pair[1]
+
+    future = []
+    for s in schedules:
+        parsed = _parse_pt(s["departure_pt"])
+        if parsed is None:
+            continue
+        dow, hour, _ = parsed
+        stops = s.get("stops") or 0
+        is_future = datetime.fromisoformat(s["departure_pt"]).timestamp() > now_ts
+
+        if is_future:
+            future.append((s, dow, hour, stops))
+            continue
+
+        # Past schedule — contribute its successful T-24h checks to the buckets.
+        found = 0
+        total = 0
+        for c in s["checks"]:
+            if c["check_type"] != "T-24h":
+                continue
+            if c["flight_found"] is None:
+                continue  # failed search — skip
+            total += 1
+            if c["flight_found"]:
+                found += 1
+        if total == 0:
+            continue
+        pair = (found, total)
+        _accum(by_exact, (dow, hour, stops), pair)
+        _accum(by_dow_stops, (dow, stops), pair)
+        _accum(by_dow, (dow,), pair)
+        overall[0] += found
+        overall[1] += total
+
+    MIN_SAMPLES = 3
+
+    def _lookup(s_dow, s_hour, s_stops):
+        for label, bucket_dict, key in (
+            ("same slot", by_exact, (s_dow, s_hour, s_stops)),
+            ("same day · stops", by_dow_stops, (s_dow, s_stops)),
+            ("same day", by_dow, (s_dow,)),
+        ):
+            pair = bucket_dict.get(key)
+            if pair and pair[1] >= MIN_SAMPLES:
+                return label, pair[0], pair[1]
+        if overall[1] >= MIN_SAMPLES:
+            return "route-wide", overall[0], overall[1]
+        # Fall back to whatever the narrowest bucket has even if <3 — honesty > coverage.
+        for label, bucket_dict, key in (
+            ("same slot", by_exact, (s_dow, s_hour, s_stops)),
+            ("same day · stops", by_dow_stops, (s_dow, s_stops)),
+            ("same day", by_dow, (s_dow,)),
+        ):
+            pair = bucket_dict.get(key)
+            if pair:
+                return label, pair[0], pair[1]
+        if overall[1] > 0:
+            return "route-wide", overall[0], overall[1]
+        return None, 0, 0
+
+    for s, dow, hour, stops in future:
+        label, found, total = _lookup(dow, hour, stops)
+        s["prediction_bucket"] = label
+        s["prediction_samples"] = total
+        s["prediction_pct"] = (round(100.0 * found / total, 1) if total > 0 else None)
 
 
 # ── API: /api/destinations ────────────────────────────────────────────────────

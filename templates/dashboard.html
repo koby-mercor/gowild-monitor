@@ -1312,6 +1312,26 @@
         html += '<div class="detail-flight-origin">' + parts.join(' &middot; ') + '</div>';
       }
 
+      // Prediction — set by the backend on upcoming schedules via
+      // widening-fallback pattern match across past T-24h checks.
+      if (s.prediction_samples !== undefined && s.prediction_samples !== null) {
+        var pct = s.prediction_pct;
+        var n = s.prediction_samples;
+        var bucket = s.prediction_bucket || '';
+        var predTier;
+        if (pct === null) predTier = 'none';
+        else if (pct >= 75) predTier = 'green';
+        else if (pct >= 50) predTier = 'amber';
+        else predTier = 'red';
+        var pctTxt = (pct !== null && pct !== undefined) ? pct.toFixed(0) + '%' : '—';
+        html += '<div class="detail-flight-prediction prediction-' + predTier + '">';
+        html += '<span class="pred-pct">' + pctTxt + '</span>';
+        html += '<span class="pred-samples">' + n + ' past check' + (n === 1 ? '' : 's') + '</span>';
+        if (bucket) html += '<span class="pred-bucket">· ' + bucket + '</span>';
+        html += '</div>';
+      }
+
+      // Check history (only shown if there are actual checks — past flights)
       if (s.checks && s.checks.length > 0) {
         html += '<div class="detail-flight-checks">';
         for (var c = 0; c < s.checks.length; c++) {
@@ -1330,8 +1350,6 @@
             + '</div>';
         }
         html += '</div>';
-      } else {
-        html += '<div style="font-size:10px;color:var(--text-dim);font-style:italic;padding-top:4px">No checks recorded</div>';
       }
 
       html += '</div>';

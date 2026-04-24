@@ -954,6 +954,37 @@ body {
   letter-spacing: 0;
 }
 
+/* Per-flight prediction bar (shown on upcoming flight cards) */
+.detail-flight-prediction {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  font-size: 10px;
+}
+
+.detail-flight-prediction .pred-pct {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.detail-flight-prediction.prediction-green .pred-pct { color: var(--accent-green); }
+.detail-flight-prediction.prediction-amber .pred-pct { color: var(--accent-amber); }
+.detail-flight-prediction.prediction-red   .pred-pct { color: var(--accent-red); }
+.detail-flight-prediction.prediction-none  .pred-pct { color: var(--text-dim); }
+
+.detail-flight-prediction .pred-samples {
+  color: var(--text-secondary);
+}
+
+.detail-flight-prediction .pred-bucket {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
 .detail-flight-top {
   display: flex;
   justify-content: space-between;

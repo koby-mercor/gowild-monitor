@@ -111,7 +111,11 @@ def dispatch():
                           f"Batch {origin}->{dest} {date_str}: {len(group_flights)} flights")
 
                 flight_dicts = [
-                    {"schedule_id": f["schedule_id"], "departure_pt": f["departure_pt"]}
+                    {
+                        "schedule_id": f["schedule_id"],
+                        "departure_pt": f["departure_pt"],
+                        "stops": f["stops"],
+                    }
                     for f in group_flights
                 ]
 
