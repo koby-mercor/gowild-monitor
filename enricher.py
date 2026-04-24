@@ -119,8 +119,10 @@ class OpenSkyClient:
         self._token_expires_at = now + int(data.get("expires_in", 60))
         return self._token
 
-    def departures(self, icao_airport: str, begin_ts: int, end_ts: int) -> list[dict]:
-        """Return the decoded /flights/departure response, or []."""
+    def departures(self, icao_airport: str, begin_ts: int, end_ts: int) -> tuple[list[dict], int]:
+        """Return ``(rows, http_status)``. On 400/404 returns ``([], code)``
+        instead of raising — OpenSky uses those for "window outside coverage"
+        and "no flights in window", both of which are benign to us."""
         params = urllib.parse.urlencode({
             "airport": icao_airport,
             "begin": begin_ts,
@@ -130,14 +132,10 @@ class OpenSkyClient:
         req = urllib.request.Request(url, headers={"Authorization": f"Bearer {self._get_token()}"})
         try:
             with urllib.request.urlopen(req, timeout=30) as r:
-                return json.load(r)
+                return json.load(r), 200
         except urllib.error.HTTPError as e:
-            if e.code == 404:
-                # Opensky returns 404 when no flights in window
-                return []
-            if e.code == 400:
-                # window before data coverage, or invalid airport — skip quietly
-                return []
+            if e.code in (400, 404):
+                return [], e.code
             raise
 
 
@@ -275,8 +273,10 @@ def enrich_schedules(
 
     stats = {"airports": len(airports), "queries": 0, "http_errors": 0, "matched": 0}
 
-    # OpenSky's /flights/departure caps intervals at 7 days. Chunk accordingly.
-    CHUNK_DAYS = 7
+    # OpenSky's /flights/departure effectively requires windows ≤ ~2 days;
+    # wider ranges return 404 (handled below as empty). 1-day chunks are
+    # what the local spike verified working.
+    CHUNK_DAYS = 1
 
     for iata in sorted(airports):
         icao = iata_to_icao(iata)
@@ -284,7 +284,7 @@ def enrich_schedules(
         while t < end:
             tnext = min(t + CHUNK_DAYS * 86400, end)
             try:
-                rows = client.departures(icao, t, tnext)
+                rows, status = client.departures(icao, t, tnext)
                 stats["queries"] += 1
             except Exception as e:
                 stats["http_errors"] += 1
@@ -302,9 +302,10 @@ def enrich_schedules(
 
             if verbose:
                 window = datetime.fromtimestamp(t, tz=timezone.utc).strftime("%m-%d")
+                note = "" if status == 200 else f" [HTTP {status}]"
                 print(
                     f"  {iata} from {window} ({len(rows)} total / {len(frontier_rows)} FFT): "
-                    f"+{matched_this_chunk} enriched"
+                    f"+{matched_this_chunk} enriched{note}"
                 )
             stats["matched"] += matched_this_chunk
             t = tnext
