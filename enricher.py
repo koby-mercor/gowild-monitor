@@ -238,6 +238,75 @@ def _match_and_update(conn, opensky_row: dict) -> int:
     return 1
 
 
+def _propagate_flight_numbers(conn, verbose: bool = True) -> int:
+    """Spread flight_number from enriched past schedules to matching future
+    schedules on the same route, day-of-week, and ±15 min dep time.
+
+    Frontier reuses the same flight_number weekly for the same slot, so
+    ``F9 1234`` observed on past Fridays at ~18:45 SFO→ATL implies the
+    upcoming Friday 18:45 SFO→ATL schedule is that same flight.
+    """
+    # Past schedules that have been enriched, one row per (route, flight_number, dep_time, stops).
+    past = conn.execute(
+        """
+        SELECT fs.route_id, fs.flight_number, fs.departure_pt, fs.stops
+        FROM flight_schedules fs
+        WHERE fs.flight_number IS NOT NULL
+          AND fs.stops = 0
+          AND fs.departure_pt < datetime('now')
+        """
+    ).fetchall()
+
+    # Unenriched future schedules that are candidates for propagation.
+    future = conn.execute(
+        """
+        SELECT fs.schedule_id, fs.route_id, fs.departure_pt, fs.stops
+        FROM flight_schedules fs
+        WHERE fs.flight_number IS NULL
+          AND fs.stops = 0
+          AND fs.departure_pt > datetime('now')
+        """
+    ).fetchall()
+
+    def _dow_and_min(iso: str) -> tuple[int, int]:
+        dt = datetime.fromisoformat(iso).astimezone(PT)
+        # ISO weekday: Mon=0..Sun=6; align with our other code via py_dow.
+        py_dow = dt.weekday()
+        return py_dow, dt.hour * 60 + dt.minute
+
+    # Index past observations by (route_id, py_dow) → list of (minutes, flight_number)
+    past_index: dict[tuple[int, int], list[tuple[int, str]]] = {}
+    for row in past:
+        dow, minutes = _dow_and_min(row["departure_pt"])
+        past_index.setdefault((row["route_id"], dow), []).append((minutes, row["flight_number"]))
+
+    propagated = 0
+    for row in future:
+        dow, minutes = _dow_and_min(row["departure_pt"])
+        candidates = past_index.get((row["route_id"], dow), [])
+        if not candidates:
+            continue
+        best_fn = None
+        best_diff = None
+        for past_minutes, fn in candidates:
+            raw = abs(past_minutes - minutes)
+            diff = min(raw, 1440 - raw)
+            if diff <= 15 and (best_diff is None or diff < best_diff):
+                best_fn = fn
+                best_diff = diff
+        if best_fn is None:
+            continue
+        conn.execute(
+            "UPDATE flight_schedules SET flight_number = ? WHERE schedule_id = ?",
+            (best_fn, row["schedule_id"]),
+        )
+        propagated += 1
+
+    if verbose:
+        print(f"Propagated flight numbers to {propagated} future schedules.")
+    return propagated
+
+
 def enrich_schedules(
     *,
     days_back: int = 14,
@@ -309,6 +378,10 @@ def enrich_schedules(
                 )
             stats["matched"] += matched_this_chunk
             t = tnext
+
+    # Propagate flight numbers from enriched past schedules to matching future ones.
+    with db_session() as conn:
+        stats["propagated"] = _propagate_flight_numbers(conn, verbose=verbose)
 
     return stats
 

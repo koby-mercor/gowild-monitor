@@ -88,7 +88,8 @@ def enrich(
     typer.echo(
         f"\nAirports queried: {stats['airports']} · "
         f"HTTP errors: {stats['http_errors']} · "
-        f"schedules enriched: {stats['matched']}"
+        f"directly enriched: {stats['matched']} · "
+        f"propagated forward: {stats.get('propagated', 0)}"
     )
 
 

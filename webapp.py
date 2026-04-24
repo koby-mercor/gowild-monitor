@@ -262,26 +262,32 @@ def _annotate_predictions(schedules):
         overall[0] += found
         overall[1] += total
 
-    MIN_SAMPLES = 3
+    # flight_number matches are exact-identity signals — even a single past
+    # check of THE same flight is stronger than 10 checks of rough-pattern
+    # neighbors. Pattern-based buckets need ≥3 to escape small-sample noise.
+    MIN_SAMPLES_PATTERN = 3
+    MIN_SAMPLES_FLIGHT_NUM = 1
 
     def _lookup(dow_, hour_, stops_, fn_):
-        ladder = []
+        # Flight-number bucket first, with its own lower threshold.
         if fn_:
-            ladder.append((fn_, by_flight_num, fn_))
-        ladder += [
+            pair = by_flight_num.get(fn_)
+            if pair and pair[1] >= MIN_SAMPLES_FLIGHT_NUM:
+                return fn_, pair[0], pair[1]
+
+        pattern_ladder = [
             ("same slot", by_exact, (dow_, hour_, stops_)),
             ("same day · stops", by_dow_stops, (dow_, stops_)),
             ("same day", by_dow, (dow_,)),
         ]
-        # First pass: narrowest bucket with ≥3 samples
-        for label, bucket_dict, key in ladder:
+        for label, bucket_dict, key in pattern_ladder:
             pair = bucket_dict.get(key)
-            if pair and pair[1] >= MIN_SAMPLES:
+            if pair and pair[1] >= MIN_SAMPLES_PATTERN:
                 return label, pair[0], pair[1]
-        if overall[1] >= MIN_SAMPLES:
+        if overall[1] >= MIN_SAMPLES_PATTERN:
             return "route-wide", overall[0], overall[1]
-        # Second pass: narrowest bucket even if <3
-        for label, bucket_dict, key in ladder:
+        # Narrowest bucket even if <3 samples (honesty over coverage)
+        for label, bucket_dict, key in pattern_ladder:
             pair = bucket_dict.get(key)
             if pair:
                 return label, pair[0], pair[1]
