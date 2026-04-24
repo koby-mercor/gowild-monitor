@@ -1305,8 +1305,9 @@
         + '<span class="detail-flight-meta"><span>' + dur + ' total</span>' + routeViz + '</span>'
         + '</div>';
 
-      if (s._origin || depDayLabel) {
+      if (s._origin || depDayLabel || s.flight_number) {
         var parts = [];
+        if (s.flight_number) parts.push('<span class="flight-number">' + s.flight_number + '</span>');
         if (s._origin) parts.push('From ' + s._origin);
         if (depDayLabel) parts.push(depDayLabel);
         html += '<div class="detail-flight-origin">' + parts.join(' &middot; ') + '</div>';
@@ -1415,6 +1416,7 @@
     if (!sel) return '';
     var s = sel.schedule;
     var stopsTxt = (s.stops || 0) === 0 ? 'Nonstop' : (s.stops + ' stop via DEN');
+    if (s.flight_number) stopsTxt = s.flight_number + ' · ' + stopsTxt;
     var dateStr = formatTripLegDate(s.departure_pt);
     var depTime = formatTime(s.departure_pt);
     var arrTime = formatTime(s.arrival_pt);

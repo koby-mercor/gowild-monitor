@@ -78,6 +78,21 @@ def dispatch():
 
 
 @app.command()
+def enrich(
+    days_back: int = typer.Option(14, "--days-back", help="Historical window to query OpenSky for"),
+    days_forward: int = typer.Option(60, "--days-forward", help="Which upcoming schedules need enrichment"),
+):
+    """Fill flight_number on nonstop schedules using OpenSky callsigns."""
+    from enricher import enrich_schedules
+    stats = enrich_schedules(days_back=days_back, days_forward=days_forward, verbose=True)
+    typer.echo(
+        f"\nAirports queried: {stats['airports']} · "
+        f"HTTP errors: {stats['http_errors']} · "
+        f"schedules enriched: {stats['matched']}"
+    )
+
+
+@app.command()
 def check(
     origin: str = typer.Argument(..., help="Origin airport (e.g., SFO)"),
     destination: str = typer.Argument(..., help="Destination airport (e.g., DEN)"),

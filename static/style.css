@@ -1011,6 +1011,12 @@ body {
   margin-bottom: 4px;
 }
 
+.detail-flight-origin .flight-number {
+  color: var(--accent-blue);
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+}
+
 .detail-flight-checks {
   margin-top: 6px;
   padding-top: 6px;

@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS flight_schedules (
     week_of         TEXT NOT NULL,
     raw_departure   TEXT,
     raw_arrival     TEXT,
+    flight_number   TEXT,
     discovered_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S','now')),
     UNIQUE(route_id, departure_pt, direction)
 );
@@ -111,9 +112,22 @@ def _migrate_weekend_to_week_of(conn):
     )
 
 
+def _migrate_add_flight_number(conn):
+    """Add flight_number column to existing DBs (no-op on fresh DBs)."""
+    table_exists = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='flight_schedules'"
+    ).fetchone()
+    if not table_exists:
+        return
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(flight_schedules)").fetchall()}
+    if "flight_number" not in cols:
+        conn.execute("ALTER TABLE flight_schedules ADD COLUMN flight_number TEXT")
+
+
 def init_db(db_path=None):
     with db_session(db_path) as conn:
         _migrate_weekend_to_week_of(conn)
+        _migrate_add_flight_number(conn)
         conn.executescript(SCHEMA_SQL)
 
 

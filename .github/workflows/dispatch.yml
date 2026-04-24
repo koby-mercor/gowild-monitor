@@ -32,6 +32,13 @@ jobs:
       - name: Run dispatcher
         run: python monitor.py dispatch
 
+      - name: Enrich flight numbers (OpenSky)
+        env:
+          OPENSKY_CLIENT_ID: ${{ secrets.OPENSKY_CLIENT_ID }}
+          OPENSKY_CLIENT_SECRET: ${{ secrets.OPENSKY_CLIENT_SECRET }}
+        continue-on-error: true  # best-effort; no-ops silently if secrets aren't set
+        run: python monitor.py enrich --days-back 7
+
       - name: Commit database changes
         run: |
           git config user.name "github-actions[bot]"
