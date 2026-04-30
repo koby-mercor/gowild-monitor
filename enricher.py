@@ -332,6 +332,15 @@ def enrich_schedules(
     with db_session() as conn:
         airports = _unenriched_airports(conn, days_forward)
 
+    if not airports:
+        if verbose:
+            print("Nothing to enrich — every nonstop future schedule already has a flight_number.")
+        # Still run the propagation pass cheaply, in case an enrichment from a
+        # past run can be carried to a newly-seeded future schedule.
+        with db_session() as conn:
+            propagated = _propagate_flight_numbers(conn, verbose=verbose)
+        return {"airports": 0, "queries": 0, "http_errors": 0, "matched": 0, "propagated": propagated}
+
     if verbose:
         print(f"Airports to query: {len(airports)}")
 

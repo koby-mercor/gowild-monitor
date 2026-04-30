@@ -1,15 +1,16 @@
-name: GoWild Dispatch
+name: GoWild Enrich (OpenSky flight numbers)
 
-# Catch-up model: each run checks ALL flights past T-24h.
-# Run every 2 hours, every day — full week coverage.
-# GitHub Actions may skip some runs — the catch-up logic handles gaps.
+# Once a day, query OpenSky for the last few days of Frontier departures
+# and assign / propagate flight numbers onto matching schedules.
+# Splitting this off from dispatch keeps the every-2h dispatch run cheap
+# (~30s) — enrichment is the expensive step (~20 min of OpenSky calls).
 on:
   schedule:
-    - cron: '0 */2 * * *'  # Every 2h, every day
+    - cron: '15 4 * * *'  # 04:15 UTC, after OpenSky's nightly batch lands
   workflow_dispatch: {}
 
 jobs:
-  check:
+  enrich:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -29,8 +30,11 @@ jobs:
       - name: Initialize DB if needed
         run: python monitor.py init
 
-      - name: Run dispatcher
-        run: python monitor.py dispatch
+      - name: Enrich flight numbers (OpenSky)
+        env:
+          OPENSKY_CLIENT_ID: ${{ secrets.OPENSKY_CLIENT_ID }}
+          OPENSKY_CLIENT_SECRET: ${{ secrets.OPENSKY_CLIENT_SECRET }}
+        run: python monitor.py enrich --days-back 3
 
       - name: Commit database changes
         run: |
@@ -41,15 +45,15 @@ jobs:
             echo "No DB changes to commit."
             exit 0
           fi
-          git commit -m "chore: update availability data [skip ci]"
+          git commit -m "chore: enrich flight numbers via OpenSky [skip ci]"
           for i in 1 2 3; do
             git push && break
             echo "Push conflict, rebasing on remote..."
             sleep 5
-            cp gowild_monitor.db /tmp/checked.db
+            cp gowild_monitor.db /tmp/enriched.db
             git fetch origin main
             git reset --hard origin/main
-            cp /tmp/checked.db gowild_monitor.db
+            cp /tmp/enriched.db gowild_monitor.db
             git add gowild_monitor.db
-            git commit -m "chore: update availability data [skip ci]" || true
+            git commit -m "chore: enrich flight numbers via OpenSky [skip ci]" || true
           done
