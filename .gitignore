@@ -5,3 +5,25 @@ logs/
 .claude/
 *.db-shm
 *.db-wal
+
+# --- added during reorg cleanup ---
+.DS_Store
+node_modules/
+.next/
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+.vercel/
+.playwright-mcp/
+.remember/
+*.log
+.env
+.env.*
+*.pem
+*.key
+*-key.json
+*_key.json
+service-account*.json
+credentials.json
