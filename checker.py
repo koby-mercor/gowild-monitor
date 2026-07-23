@@ -7,6 +7,29 @@ from typing import Optional
 
 from config import MAX_RETRIES, RETRY_DELAY_SECONDS
 from gowild_search import search_flights
+from utils import circular_minute_diff
+
+
+def _search_with_retries(origin: str, destination: str, date_str: str, max_stops: int = None):
+    """Run ``search_flights`` with retry/backoff.
+
+    Returns ``(flights, last_error, elapsed_ms)`` where ``flights`` is None only
+    when every attempt raised.
+    """
+    start = time.time()
+    flights = None
+    last_error = None
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            flights = search_flights(origin, destination, date_str, max_stops=max_stops)
+            last_error = None
+            break
+        except Exception as e:
+            last_error = str(e)
+            if attempt < MAX_RETRIES:
+                time.sleep(RETRY_DELAY_SECONDS)
+    elapsed_ms = int((time.time() - start) * 1000)
+    return flights, last_error, elapsed_ms
 
 
 def parse_price_cents(price_str: str) -> Optional[int]:
@@ -38,21 +61,9 @@ def check_flight_availability(
         "duration_ms": 0,
     }
 
-    start = time.time()
-    flights = None
-    last_error = None
-
-    for attempt in range(MAX_RETRIES + 1):
-        try:
-            flights = search_flights(origin, destination, date_str, max_stops=max_stops)
-            last_error = None
-            break
-        except Exception as e:
-            last_error = str(e)
-            if attempt < MAX_RETRIES:
-                time.sleep(RETRY_DELAY_SECONDS)
-
-    elapsed_ms = int((time.time() - start) * 1000)
+    flights, last_error, elapsed_ms = _search_with_retries(
+        origin, destination, date_str, max_stops=max_stops
+    )
     result["duration_ms"] = elapsed_ms
 
     if flights is None:
@@ -125,21 +136,9 @@ def batch_check_flights(
     (observed up to ~34 min on Frontier); earlier 5-min tolerance silently
     recorded availability as "not found" when the carrier shifted the time.
     """
-    start = time.time()
-    search_results = None
-    last_error = None
-
-    for attempt in range(MAX_RETRIES + 1):
-        try:
-            search_results = search_flights(origin, destination, date_str, max_stops=max_stops)
-            last_error = None
-            break
-        except Exception as e:
-            last_error = str(e)
-            if attempt < MAX_RETRIES:
-                time.sleep(RETRY_DELAY_SECONDS)
-
-    elapsed_ms = int((time.time() - start) * 1000)
+    search_results, last_error, elapsed_ms = _search_with_retries(
+        origin, destination, date_str, max_stops=max_stops
+    )
 
     results = []
     for flight in flights_to_check:
@@ -173,8 +172,7 @@ def batch_check_flights(
             if sched_stops is not None and sr.stops != sched_stops:
                 continue
             sr_min = sr.dep_dt.hour * 60 + sr.dep_dt.minute
-            raw = abs(sr_min - sched_min)
-            diff = min(raw, 1440 - raw)  # wrap around midnight
+            diff = circular_minute_diff(sr_min, sched_min)
             if diff <= time_tolerance_min and (best_diff is None or diff < best_diff):
                 best = sr
                 best_diff = diff

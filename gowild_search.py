@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 
 from fast_flights import FlightData, Passengers, get_flights
 
+from utils import next_weekday
+
 # ── Configuration ──────────────────────────────────────────────────────────
 
 BAY_AREA_AIRPORTS = ["SFO", "SJC", "OAK"]
@@ -364,12 +366,8 @@ def format_results(trips: List[WeekendTrip], friday_date: str):
 
 
 def main():
-    # Calculate next Friday
-    today = datetime.now()
-    days_to_friday = (4 - today.weekday()) % 7
-    if days_to_friday == 0 and today.hour >= 18:
-        days_to_friday = 7  # Already past Friday 6pm, use next week
-    next_friday = today + timedelta(days=days_to_friday)
+    # Calculate next Friday (Fri=4); past Friday 6pm rolls to next week.
+    next_friday = next_weekday(datetime.now(), 4)
     friday_date = next_friday.strftime("%Y-%m-%d")
 
     # Allow override via command line
