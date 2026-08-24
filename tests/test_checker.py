@@ -1,7 +1,10 @@
 """Tests for batch flight checking logic."""
 
 from unittest.mock import patch, MagicMock
-from checker import batch_check_flights
+
+import pytest
+
+from checker import batch_check_flights, check_flight_availability, parse_price_cents
 
 
 def _make_flight_option(dep_hour, dep_minute, price, stops=0):
@@ -78,3 +81,81 @@ def test_batch_returns_all_frontier_count(mock_search):
     results = batch_check_flights("SFO", "LAS", "2026-04-10", flights_to_check)
 
     assert results[0]["num_frontier_results"] == 3
+
+
+# ── parse_price_cents ─────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("$160", 16000),
+        ("$1,234", 123400),
+        ("160", 16000),
+        ("", None),
+        (None, None),
+        ("free", None),
+    ],
+)
+def test_parse_price_cents(text, expected):
+    assert parse_price_cents(text) == expected
+
+
+# ── check_flight_availability ─────────────────────────────────────────────────
+
+@patch("checker.search_flights")
+def test_check_availability_any_flight(mock_search):
+    """With no target time, any Frontier flight counts as available."""
+    mock_search.return_value = [_make_flight_option(18, 0, "$160")]
+    result = check_flight_availability("SFO", "LAS", "2026-04-10")
+    assert result["flight_found"] is True
+    assert result["price"] == "$160"
+    assert result["price_cents"] == 16000
+    assert result["error"] is None
+
+
+@patch("checker.search_flights")
+def test_check_availability_no_results(mock_search):
+    mock_search.return_value = []
+    result = check_flight_availability("SFO", "LAS", "2026-04-10")
+    assert result["flight_found"] is False
+    assert result["num_frontier_results"] == 0
+
+
+@patch("checker.search_flights")
+def test_check_availability_time_match(mock_search):
+    mock_search.return_value = [
+        _make_flight_option(18, 0, "$200"),
+        _make_flight_option(20, 30, "$150"),
+    ]
+    result = check_flight_availability(
+        "SFO", "LAS", "2026-04-10", target_dep_hour=20, target_dep_minute=30,
+        time_tolerance_min=5)
+    assert result["flight_found"] is True
+    assert result["price"] == "$150"
+
+
+@patch("checker.search_flights")
+def test_check_availability_no_time_match_reports_cheapest(mock_search):
+    """When no flight matches the target time, report general availability at
+    the cheapest price."""
+    mock_search.return_value = [
+        _make_flight_option(6, 0, "$300"),
+        _make_flight_option(8, 0, "$120"),
+    ]
+    result = check_flight_availability(
+        "SFO", "LAS", "2026-04-10", target_dep_hour=23, target_dep_minute=0,
+        time_tolerance_min=5)
+    assert result["flight_found"] is True
+    assert result["price"] == "$120"
+
+
+@patch("checker.search_flights")
+@patch("checker.time.sleep")
+def test_check_availability_retries_then_errors(mock_sleep, mock_search):
+    """A persistently failing search should retry and surface the error."""
+    mock_search.side_effect = Exception("rate limited")
+    result = check_flight_availability("SFO", "LAS", "2026-04-10")
+    assert result["flight_found"] is False
+    assert "rate limited" in result["error"]
+    # MAX_RETRIES + 1 attempts
+    assert mock_search.call_count >= 2
