@@ -39,6 +39,7 @@ import pytz
 
 from config import PACIFIC_TZ
 from db import db_session
+from utils import circular_minute_diff
 
 
 PT = pytz.timezone(PACIFIC_TZ)
@@ -222,8 +223,7 @@ def _match_and_update(conn, opensky_row: dict) -> int:
         hh = int(row["departure_pt"][11:13])
         mm = int(row["departure_pt"][14:16])
         sched_min = hh * 60 + mm
-        raw = abs(sched_min - dep_min)
-        diff = min(raw, 1440 - raw)
+        diff = circular_minute_diff(sched_min, dep_min)
         if diff <= 15 and (best_diff is None or diff < best_diff):
             best_sid = row["schedule_id"]
             best_diff = diff
@@ -289,8 +289,7 @@ def _propagate_flight_numbers(conn, verbose: bool = True) -> int:
         best_fn = None
         best_diff = None
         for past_minutes, fn in candidates:
-            raw = abs(past_minutes - minutes)
-            diff = min(raw, 1440 - raw)
+            diff = circular_minute_diff(past_minutes, minutes)
             if diff <= 15 and (best_diff is None or diff < best_diff):
                 best_fn = fn
                 best_diff = diff

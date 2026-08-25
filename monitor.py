@@ -3,8 +3,7 @@
 
 import subprocess
 import sys
-from datetime import datetime, timedelta
-from pathlib import Path
+from datetime import datetime
 from typing import Optional
 
 import typer
@@ -54,11 +53,9 @@ def seed(
 
     if start_date is None:
         import pytz
+        from utils import next_weekday
         today = datetime.now(pytz.timezone("America/Los_Angeles"))
-        days_to_monday = (0 - today.weekday()) % 7
-        if days_to_monday == 0 and today.hour >= 18:
-            days_to_monday = 7
-        start_date = (today + timedelta(days=days_to_monday)).strftime("%Y-%m-%d")
+        start_date = next_weekday(today, 0).strftime("%Y-%m-%d")
 
     if weeks > 1:
         stats = seed_next_n_weeks(weeks, max_stops=max_stops)
