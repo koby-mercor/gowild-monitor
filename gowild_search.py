@@ -126,20 +126,24 @@ def parse_duration_minutes(dur_str: str) -> int:
 
 
 def search_flights(origin: str, dest: str, date: str, max_stops: Optional[int] = None) -> List[FlightOption]:
-    """Search for Frontier flights between two airports on a date."""
-    try:
-        kwargs = dict(
-            flight_data=[FlightData(date=date, from_airport=origin, to_airport=dest)],
-            trip="one-way",
-            seat="economy",
-            passengers=Passengers(adults=1),
-            fetch_mode="fallback",
-        )
-        if max_stops is not None:
-            kwargs["max_stops"] = max_stops
-        result = get_flights(**kwargs)
-    except Exception as e:
-        return []
+    """Search for Frontier flights between two airports on a date.
+
+    Returns an empty list when the search succeeds but finds no matching
+    Frontier flights. Propagates the underlying exception when the scraper
+    itself fails (network error, rate limit, bad response) so callers can
+    distinguish "no availability" from "search failed" and retry / record
+    the error instead of silently treating a failure as zero availability.
+    """
+    kwargs = dict(
+        flight_data=[FlightData(date=date, from_airport=origin, to_airport=dest)],
+        trip="one-way",
+        seat="economy",
+        passengers=Passengers(adults=1),
+        fetch_mode="fallback",
+    )
+    if max_stops is not None:
+        kwargs["max_stops"] = max_stops
+    result = get_flights(**kwargs)
 
     flights = []
     seen = set()
@@ -248,7 +252,11 @@ def find_weekend_trips(friday_date: str, include_connections: bool = False, max_
             sys.stdout.write(f"\r  [{search_count}/{total_searches}] {origin}->{dest} {day_label}...          ")
             sys.stdout.flush()
 
-            flights = search_flights(origin, dest, date_str, max_stops=max_stops)
+            try:
+                flights = search_flights(origin, dest, date_str, max_stops=max_stops)
+            except Exception as e:
+                print(f"\n  ! Search failed for {origin}->{dest} {date_str}: {e}")
+                continue
             for f in flights:
                 if is_valid_outbound(f, fri_dt):
                     if dest not in valid_outbounds:
@@ -280,7 +288,11 @@ def find_weekend_trips(friday_date: str, include_connections: bool = False, max_
                 sys.stdout.write(f"\r  [{search_count}] {dest}->{ret_origin_airport} {day_label}...          ")
                 sys.stdout.flush()
 
-                return_flights = search_flights(dest, ret_origin_airport, date_str, max_stops=max_stops)
+                try:
+                    return_flights = search_flights(dest, ret_origin_airport, date_str, max_stops=max_stops)
+                except Exception as e:
+                    print(f"\n  ! Search failed for {dest}->{ret_origin_airport} {date_str}: {e}")
+                    continue
                 for ret in return_flights:
                     if is_valid_return(ret, mon_dt):
                         # Match with outbound flights
