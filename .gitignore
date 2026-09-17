@@ -5,6 +5,9 @@ logs/
 .claude/
 *.db-shm
 *.db-wal
+.coverage
+.pytest_cache/
+htmlcov/
 
 # --- added during reorg cleanup ---
 .DS_Store
