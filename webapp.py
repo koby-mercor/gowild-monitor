@@ -28,6 +28,33 @@ else:
     init_db()
 
 
+# ── Shared SQL ──────────────────────────────────────────────────────────────
+
+# Per-(origin, destination, direction) availability aggregation over successful
+# T-24h checks. Used by both /api/routes and /api/destinations.
+_ROUTE_STATS_SQL = """
+    SELECT r.origin, r.destination, r.is_nonstop, fs.direction,
+        COUNT(DISTINCT fs.week_of) AS weeks,
+        COUNT(ac.check_id) AS total_checks,
+        SUM(ac.flight_found) AS times_found,
+        CASE WHEN COUNT(ac.check_id) > 0
+            THEN ROUND(100.0 * SUM(ac.flight_found) / COUNT(ac.check_id), 1)
+        END AS availability_pct,
+        ROUND(AVG(CASE WHEN ac.flight_found THEN ac.price_cents END) / 100.0, 0) AS avg_price
+    FROM routes r
+    LEFT JOIN flight_schedules fs ON r.route_id = fs.route_id
+    LEFT JOIN availability_checks ac ON ac.schedule_id = fs.schedule_id
+        AND ac.check_type = 'T-24h' AND ac.search_success = 1
+    WHERE r.active = 1
+    GROUP BY r.origin, r.destination, r.is_nonstop, fs.direction
+    ORDER BY r.destination, r.origin
+"""
+
+# The "far" destination of a schedule: for return legs it is the route origin,
+# for outbound legs the route destination. Used to merge SFO/SJC home airports.
+_FAR_DEST_SQL = "CASE WHEN fs.direction = 'return' THEN r.origin ELSE r.destination END"
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _airports_as_dict():
@@ -66,25 +93,7 @@ def api_routes():
     """Return all routes with aggregated outbound/return availability stats."""
     conn = get_connection()
     try:
-        rows = conn.execute(
-            """
-            SELECT r.origin, r.destination, r.is_nonstop, fs.direction,
-                COUNT(DISTINCT fs.week_of) AS weeks,
-                COUNT(ac.check_id) AS total_checks,
-                SUM(ac.flight_found) AS times_found,
-                CASE WHEN COUNT(ac.check_id) > 0
-                    THEN ROUND(100.0 * SUM(ac.flight_found) / COUNT(ac.check_id), 1)
-                END AS availability_pct,
-                ROUND(AVG(CASE WHEN ac.flight_found THEN ac.price_cents END) / 100.0, 0) AS avg_price
-            FROM routes r
-            LEFT JOIN flight_schedules fs ON r.route_id = fs.route_id
-            LEFT JOIN availability_checks ac ON ac.schedule_id = fs.schedule_id
-                AND ac.check_type = 'T-24h' AND ac.search_success = 1
-            WHERE r.active = 1
-            GROUP BY r.origin, r.destination, r.is_nonstop, fs.direction
-            ORDER BY r.destination, r.origin
-            """
-        ).fetchall()
+        rows = conn.execute(_ROUTE_STATS_SQL).fetchall()
     finally:
         conn.close()
 
@@ -312,25 +321,7 @@ def api_destinations():
     """
     conn = get_connection()
     try:
-        rows = conn.execute(
-            """
-            SELECT r.origin, r.destination, r.is_nonstop, fs.direction,
-                COUNT(DISTINCT fs.week_of) AS weeks,
-                COUNT(ac.check_id) AS total_checks,
-                SUM(ac.flight_found) AS times_found,
-                CASE WHEN COUNT(ac.check_id) > 0
-                    THEN ROUND(100.0 * SUM(ac.flight_found) / COUNT(ac.check_id), 1)
-                END AS availability_pct,
-                ROUND(AVG(CASE WHEN ac.flight_found THEN ac.price_cents END) / 100.0, 0) AS avg_price
-            FROM routes r
-            LEFT JOIN flight_schedules fs ON r.route_id = fs.route_id
-            LEFT JOIN availability_checks ac ON ac.schedule_id = fs.schedule_id
-                AND ac.check_type = 'T-24h' AND ac.search_success = 1
-            WHERE r.active = 1
-            GROUP BY r.origin, r.destination, r.is_nonstop, fs.direction
-            ORDER BY r.destination, r.origin
-            """
-        ).fetchall()
+        rows = conn.execute(_ROUTE_STATS_SQL).fetchall()
 
         # Count seeded flights per far-destination + direction
         # For outbound routes (SFO→CUN), far dest = r.destination
@@ -338,9 +329,9 @@ def api_destinations():
         flight_counts = {}
         return_flight_dests = set()
         fc_rows = conn.execute(
-            """
+            f"""
             SELECT
-                CASE WHEN fs.direction = 'return' THEN r.origin ELSE r.destination END AS far_dest,
+                {_FAR_DEST_SQL} AS far_dest,
                 fs.direction, COUNT(*) AS cnt
             FROM flight_schedules fs
             JOIN routes r ON r.route_id = fs.route_id
@@ -357,9 +348,9 @@ def api_destinations():
         # Get stops info per far destination
         stops_info = {}
         stops_rows = conn.execute(
-            """
+            f"""
             SELECT
-                CASE WHEN fs.direction = 'return' THEN r.origin ELSE r.destination END AS far_dest,
+                {_FAR_DEST_SQL} AS far_dest,
                 MIN(fs.stops) AS min_stops, MAX(fs.stops) AS max_stops
             FROM flight_schedules fs
             JOIN routes r ON r.route_id = fs.route_id
@@ -373,9 +364,9 @@ def api_destinations():
         # Schedule day/hour metadata per far destination (for day-of-week + time filters)
         schedule_meta = {}
         meta_rows = conn.execute(
-            """
+            f"""
             SELECT
-                CASE WHEN fs.direction = 'return' THEN r.origin ELSE r.destination END AS far_dest,
+                {_FAR_DEST_SQL} AS far_dest,
                 CAST(strftime('%w', substr(fs.departure_pt, 1, 19)) AS INTEGER) AS dow,
                 CAST(substr(fs.departure_pt, 12, 2) AS INTEGER) AS dep_hour
             FROM flight_schedules fs
@@ -394,9 +385,9 @@ def api_destinations():
         # Upcoming flight info per far destination
         upcoming_info = {}
         upcoming_rows = conn.execute(
-            """
+            f"""
             SELECT
-                CASE WHEN fs.direction = 'return' THEN r.origin ELSE r.destination END AS far_dest,
+                {_FAR_DEST_SQL} AS far_dest,
                 COUNT(*) AS upcoming_count,
                 MIN(fs.departure_pt) AS next_departure
             FROM flight_schedules fs

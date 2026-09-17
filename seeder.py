@@ -9,6 +9,7 @@ import pytz
 from config import MONITORED_ROUTES, PACIFIC_TZ, RATE_LIMIT_SECONDS, DEFAULT_MAX_STOPS
 from db import db_session, get_or_create_route, insert_flight_schedule
 from gowild_search import search_flights, FRONTIER_NONSTOP, parse_flight_time, parse_duration_minutes
+from utils import next_weekday
 
 PT = pytz.timezone(PACIFIC_TZ)
 
@@ -111,11 +112,7 @@ def seed_next_n_weeks(n: int = 4, max_stops: int = DEFAULT_MAX_STOPS) -> dict:
     if max_stops is None:
         max_stops = DEFAULT_MAX_STOPS
 
-    today = datetime.now(PT)
-    days_to_monday = (0 - today.weekday()) % 7
-    if days_to_monday == 0 and today.hour >= 18:
-        days_to_monday = 7
-    next_monday = today + timedelta(days=days_to_monday)
+    next_monday = next_weekday(datetime.now(PT), 0)
 
     total_stats = {"weeks_seeded": 0, "total_inserted": 0}
     for i in range(n):
