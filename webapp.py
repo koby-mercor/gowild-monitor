@@ -531,21 +531,22 @@ def api_destinations():
 @app.route("/api/stats")
 def api_stats():
     """Return high-level summary statistics."""
-    home_airports_sql = ", ".join(f"'{a}'" for a in BAY_AREA_AIRPORTS)
+    home_placeholders = ", ".join("?" for _ in BAY_AREA_AIRPORTS)
     conn = get_connection()
     try:
         row = conn.execute(
             f"""
             SELECT
                 (SELECT COUNT(DISTINCT destination) FROM routes
-                 WHERE origin IN ({home_airports_sql})) AS destinations,
+                 WHERE origin IN ({home_placeholders})) AS destinations,
                 (SELECT COUNT(*) FROM flight_schedules) AS total_flights,
                 (SELECT COUNT(*) FROM availability_checks WHERE search_success = 1) AS total_checks,
                 (SELECT MAX(checked_at) FROM availability_checks) AS last_check,
                 (SELECT COUNT(DISTINCT week_of) FROM flight_schedules) AS weeks_tracked,
                 (SELECT CAST(julianday(MAX(checked_at)) - julianday(MIN(checked_at)) AS INTEGER)
                  FROM availability_checks WHERE search_success = 1) AS days_of_data
-            """
+            """,
+            list(BAY_AREA_AIRPORTS),
         ).fetchone()
     finally:
         conn.close()
@@ -575,5 +576,8 @@ if __name__ == "__main__":
     import threading
 
     PORT = 5001
+    # Debug mode enables the Werkzeug interactive debugger, which allows
+    # arbitrary code execution — keep it off unless explicitly opted in.
+    debug = os.environ.get("FLASK_DEBUG", "").lower() in ("1", "true", "yes")
     threading.Timer(1.0, lambda: webbrowser.open(f"http://localhost:{PORT}")).start()
-    app.run(debug=True, port=PORT, use_reloader=False)
+    app.run(debug=debug, port=PORT, use_reloader=False)
