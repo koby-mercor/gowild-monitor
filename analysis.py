@@ -4,6 +4,7 @@ from rich.console import Console
 from rich.table import Table
 
 from db import get_connection
+from utils import price_str, rate_style, route_label
 
 console = Console()
 
@@ -42,14 +43,13 @@ def availability_rate_by_route(check_type: str = "T-24h", min_samples: int = 1):
     table.add_column("Avg Price", justify="right")
 
     for r in rows:
-        rate_style = "green" if r["pct"] >= 75 else ("yellow" if r["pct"] >= 50 else "red")
-        avg = f"${int(r['avg_price'])}" if r["avg_price"] else "-"
+        style = rate_style(r["pct"])
         table.add_row(
-            f"{r['origin']}->{r['destination']}",
+            route_label(r["origin"], r["destination"]),
             str(r["checks"]),
             str(r["found"]),
-            f"[{rate_style}]{r['pct']}%[/{rate_style}]",
-            avg,
+            f"[{style}]{r['pct']}%[/{style}]",
+            price_str(r["avg_price"]),
         )
 
     console.print(table)
@@ -92,7 +92,7 @@ def availability_change_t24_to_t23():
 
     for r in rows:
         table.add_row(
-            f"{r['origin']}->{r['destination']}",
+            route_label(r["origin"], r["destination"]),
             str(r["pairs"]),
             str(r["still_avail"]),
             str(r["sold_out"]),
@@ -126,7 +126,7 @@ def route_detail(origin: str, destination: str):
         console.print(f"[yellow]No data for {origin}->{destination}.[/yellow]")
         return
 
-    table = Table(title=f"Check History: {origin} -> {destination}")
+    table = Table(title=f"Check History: {route_label(origin, destination)}")
     table.add_column("Week", style="cyan")
     table.add_column("Departure", style="dim")
     table.add_column("Check", justify="center")
@@ -203,7 +203,7 @@ def status_summary():
             found_style = "green" if r["flight_found"] else "red"
             table.add_row(
                 r["checked_at"][:16],
-                f"{r['origin']}->{r['destination']}",
+                route_label(r["origin"], r["destination"]),
                 r["check_type"],
                 f"[{found_style}]{'YES' if r['flight_found'] else 'NO'}[/{found_style}]",
                 r["price"] or "-",
@@ -254,17 +254,16 @@ def confidence_report(min_weeks: int = 2):
 
     for r in rows:
         rate = r["availability_pct"]
-        rate_style = "green" if rate >= 75 else ("yellow" if rate >= 50 else "red")
-        avg_price = f"${int(r['avg_price'])}" if r["avg_price"] else "-"
+        style = rate_style(rate)
         freshness = f"{int(r['avg_min_after_t24h'])}m" if r["avg_min_after_t24h"] else "-"
         table.add_row(
-            f"{r['origin']}->{r['destination']}",
+            route_label(r["origin"], r["destination"]),
             r["direction"][:3],
             str(r["weeks"]),
             str(r["total_checks"]),
             str(r["times_found"]),
-            f"[{rate_style}]{rate}%[/{rate_style}]",
-            avg_price,
+            f"[{style}]{rate}%[/{style}]",
+            price_str(r["avg_price"]),
             freshness,
         )
 
@@ -326,8 +325,8 @@ def safe_destinations(min_pct: float = 75.0, min_weeks: int = 2):
         out_style = "green" if r["out_pct"] >= 75 else "yellow"
         ret_style = "green" if r["ret_pct"] >= 75 else "yellow"
         combined_style = "green bold" if r["combined_pct"] >= 80 else "green"
-        out_price = f"${int(r['out_price'])}" if r["out_price"] else "-"
-        ret_price = f"${int(r['ret_price'])}" if r["ret_price"] else "-"
+        out_price = price_str(r["out_price"])
+        ret_price = price_str(r["ret_price"])
         wk = max(r["out_wk"], r["ret_wk"])
         table.add_row(
             r["dest"],
