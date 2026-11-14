@@ -1,6 +1,5 @@
 """Shared fixtures for GoWild tests."""
 
-import sqlite3
 import pytest
 from db import init_db, db_session, get_or_create_route, insert_flight_schedule
 
@@ -11,6 +10,18 @@ def test_db(tmp_path):
     db_path = str(tmp_path / "test.db")
     init_db(db_path)
     return db_path
+
+
+@pytest.fixture
+def env_db(test_db, monkeypatch):
+    """Initialized temp DB wired up as the default via GOWILD_DB_PATH.
+
+    Modules that call ``db_session()`` / ``get_connection()`` with no explicit
+    path resolve the DB from the ``GOWILD_DB_PATH`` env var, so setting it lets
+    us exercise their DB-backed code paths against a throwaway database.
+    """
+    monkeypatch.setenv("GOWILD_DB_PATH", test_db)
+    return test_db
 
 
 @pytest.fixture
