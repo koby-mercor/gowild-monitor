@@ -73,6 +73,8 @@ def seed_week(week_start: str, max_stops: int = DEFAULT_MAX_STOPS) -> dict:
                     flights = search_flights(search_origin, search_dest, date_str, max_stops=max_stops)
                 except Exception as e:
                     stats["errors"] += 1
+                    print(f"\n  ! Search failed for {search_origin}->{search_dest} {date_str}: "
+                          f"{type(e).__name__}: {e}")
                     continue
 
                 for f in flights:

@@ -191,7 +191,7 @@ def _parse_pt(iso_str):
     from datetime import datetime
     try:
         dt = datetime.fromisoformat(iso_str)
-    except Exception:
+    except (ValueError, TypeError):
         return None
     # %w style: Sun=0..Sat=6 (we store with tz, strftime('%w') gives the local dow)
     # datetime.weekday() is Mon=0..Sun=6; convert to match SQLite %w
